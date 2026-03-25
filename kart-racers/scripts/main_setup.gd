@@ -3,12 +3,14 @@ extends Node3D
 var karts: Array = []
 var speedometers: Array = []
 var lap_labels: Array = []
-var oil_labels: Array = []
+var item_labels: Array = []
 var menu_ui: Control
 var player_count: int = 1
 var split_containers: Array = []
 var hud_nodes: Array = []
-var oil_spills: Array = []
+var oil_spills: Array = []  # dropped oil spots
+var missiles: Array = []    # active homing missiles
+var mystery_boxes: Array = []  # item box meshes on the track
 
 # Countdown
 var countdown_active: bool = false
@@ -113,8 +115,9 @@ func _process(delta: float) -> void:
 			speedometers[i].text = "%d km/h" % int(abs(karts[i].speed) * 3.6)
 		if karts[i] and i < lap_labels.size() and lap_labels[i]:
 			lap_labels[i].text = "Lap %d/%d" % [karts[i].lap_count, LAPS_TO_WIN]
-		if karts[i] and i < oil_labels.size() and oil_labels[i]:
-			oil_labels[i].text = "Oil: %d" % karts[i].oil_count
+		if karts[i] and i < item_labels.size() and item_labels[i]:
+			var item_name = karts[i].held_item if karts[i].held_item != "" else "---"
+			item_labels[i].text = "Item: %s" % item_name.to_upper()
 
 		# Check win condition
 		if karts[i] and karts[i].lap_count >= LAPS_TO_WIN and not race_finished:
@@ -124,6 +127,8 @@ func _process(delta: float) -> void:
 
 	_check_oil_collisions()
 	_check_truck_collisions()
+	_check_mystery_box_collisions(delta)
+	_update_missiles(delta)
 
 
 func _build_world() -> void:
@@ -153,6 +158,7 @@ func _build_world() -> void:
 	_build_walls()
 	_build_start_finish_line()
 	_build_boulders()
+	_build_mystery_boxes()
 
 
 # === COUNTDOWN ===
@@ -231,7 +237,7 @@ func _start_game(num_players: int) -> void:
 	karts.clear()
 	speedometers.clear()
 	lap_labels.clear()
-	oil_labels.clear()
+	item_labels.clear()
 
 	for sc in split_containers:
 		if sc and sc.get_parent():
@@ -250,6 +256,11 @@ func _start_game(num_players: int) -> void:
 			oil.get_parent().remove_child(oil)
 			oil.queue_free()
 	oil_spills.clear()
+	for m in missiles:
+		if m and m.get_parent():
+			m.get_parent().remove_child(m)
+			m.queue_free()
+	missiles.clear()
 
 	if player_count == 1:
 		_start_single_player()
@@ -269,7 +280,7 @@ func _start_single_player() -> void:
 	kart.camera.current = true
 	karts.append(kart)
 	kart.connect("lap_completed", _on_lap_completed)
-	kart.connect("drop_oil", _on_drop_oil)
+	kart.connect("use_item", _on_use_item)
 
 	var canvas = CanvasLayer.new()
 	canvas.name = "HUD_P1"
@@ -279,12 +290,12 @@ func _start_single_player() -> void:
 	var speedo = _make_label(Vector2(20, 660), 24, Color.WHITE, "0 km/h")
 	canvas.add_child(speedo)
 	speedometers.append(speedo)
-	var lap = _make_label(Vector2(20, 20), 28, Color(1.0, 0.85, 0.3), "Lap 0")
+	var lap = _make_label(Vector2(20, 20), 28, Color(1.0, 0.85, 0.3), "Lap 0/3")
 	canvas.add_child(lap)
 	lap_labels.append(lap)
-	var oil = _make_label(Vector2(20, 55), 20, Color(0.7, 0.7, 0.8), "Oil: 2")
-	canvas.add_child(oil)
-	oil_labels.append(oil)
+	var item = _make_label(Vector2(20, 55), 20, Color(0.7, 0.7, 0.8), "Item: ---")
+	canvas.add_child(item)
+	item_labels.append(item)
 
 
 func _start_split_screen() -> void:
@@ -309,7 +320,7 @@ func _start_split_screen() -> void:
 		kart.camera.current = false
 		karts.append(kart)
 		kart.connect("lap_completed", _on_lap_completed)
-		kart.connect("drop_oil", _on_drop_oil)
+		kart.connect("use_item", _on_use_item)
 
 		var container = SubViewportContainer.new()
 		container.position = Vector2(0, i * half_h)
@@ -337,10 +348,10 @@ func _start_split_screen() -> void:
 		var y_base = i * half_h
 		speedometers.append(_make_label(Vector2(20, y_base + half_h - 40), 24, Color.WHITE, "0 km/h"))
 		hud.add_child(speedometers[i])
-		lap_labels.append(_make_label(Vector2(20, y_base + 10), 28, Color(1.0, 0.85, 0.3), "Lap 0"))
+		lap_labels.append(_make_label(Vector2(20, y_base + 10), 28, Color(1.0, 0.85, 0.3), "Lap 0/3"))
 		hud.add_child(lap_labels[i])
-		oil_labels.append(_make_label(Vector2(20, y_base + 45), 20, Color(0.7, 0.7, 0.8), "Oil: 2"))
-		hud.add_child(oil_labels[i])
+		item_labels.append(_make_label(Vector2(20, y_base + 45), 20, Color(0.7, 0.7, 0.8), "Item: ---"))
+		hud.add_child(item_labels[i])
 
 	var div = ColorRect.new()
 	div.color = Color(0.3, 0.3, 0.3)
@@ -366,22 +377,46 @@ func _physics_process(_delta: float) -> void:
 
 # === COLLISIONS ===
 
-func _on_drop_oil(_pid: int, pos: Vector3) -> void:
-	var terrain_y = get_ground_height(pos.x, pos.z)
-	var oil = MeshInstance3D.new()
-	var cyl = CylinderMesh.new()
-	cyl.top_radius = 3.0
-	cyl.bottom_radius = 3.0
-	cyl.height = 0.05
-	oil.mesh = cyl
-	var mat = StandardMaterial3D.new()
-	mat.albedo_color = Color(0.05, 0.05, 0.08, 0.85)
-	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	mat.metallic = 0.8
-	oil.material_override = mat
-	oil.position = Vector3(pos.x, terrain_y + 0.15, pos.z)
-	world_node.add_child(oil)
-	oil_spills.append(oil)
+func _on_use_item(pid: int, item: String, pos: Vector3, fwd: Vector3) -> void:
+	if item == "oil":
+		# Drop oil behind truck
+		var drop = pos + fwd * -4.0  # behind
+		var ty = get_ground_height(drop.x, drop.z)
+		var oil = MeshInstance3D.new()
+		var cyl = CylinderMesh.new()
+		cyl.top_radius = 3.0
+		cyl.bottom_radius = 3.0
+		cyl.height = 0.05
+		oil.mesh = cyl
+		var mat = StandardMaterial3D.new()
+		mat.albedo_color = Color(0.05, 0.05, 0.08, 0.85)
+		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		mat.metallic = 0.8
+		oil.material_override = mat
+		oil.position = Vector3(drop.x, ty + 0.15, drop.z)
+		world_node.add_child(oil)
+		oil_spills.append(oil)
+
+	elif item == "missile":
+		# Fire a homing missile forward
+		var missile = MeshInstance3D.new()
+		missile.name = "Missile"
+		var box = BoxMesh.new()
+		box.size = Vector3(0.5, 0.5, 1.5)
+		missile.mesh = box
+		var mat = StandardMaterial3D.new()
+		mat.albedo_color = Color(0.8, 0.1, 0.1)
+		mat.emission_enabled = true
+		mat.emission = Color(1.0, 0.3, 0.1)
+		mat.emission_energy_multiplier = 2.0
+		missile.material_override = mat
+		missile.position = pos + fwd * 3.0 + Vector3(0, 1.5, 0)
+		missile.set_meta("owner_id", pid)
+		missile.set_meta("velocity", fwd * 80.0)  # fast
+		missile.set_meta("lifetime", 5.0)
+		world_node.add_child(missile)
+		missiles.append(missile)
+	# "boost" is handled directly in player_kart.gd
 
 
 func _check_oil_collisions() -> void:
@@ -575,6 +610,128 @@ func _build_boulders() -> void:
 		var by = get_ground_height(b[0], b[1])
 		boulder.position = Vector3(b[0], by + b[2] * 0.6, b[1])
 		world_node.add_child(boulder)
+
+
+func _build_mystery_boxes() -> void:
+	# Row of mystery boxes at one section of track (left side of oval, angle ~PI)
+	# Place them across the road at x = -OVAL_RX, z = 0
+	var box_x = -OVAL_RX
+	var box_z = 0.0
+	var box_y = get_ground_height(box_x, box_z) + 3.0
+	var box_count = 5
+	var spacing = ROAD_WIDTH / (box_count + 1)
+
+	for i in range(box_count):
+		var bx = MeshInstance3D.new()
+		bx.name = "MysteryBox_%d" % i
+		var mesh = BoxMesh.new()
+		mesh.size = Vector3(3.0, 3.0, 3.0)
+		bx.mesh = mesh
+		var mat = StandardMaterial3D.new()
+		mat.albedo_color = Color(1.0, 0.85, 0.0, 0.8)
+		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		mat.emission_enabled = true
+		mat.emission = Color(1.0, 0.9, 0.3)
+		mat.emission_energy_multiplier = 1.5
+		bx.material_override = mat
+		# Position across the road width
+		var offset_z = -ROAD_WIDTH / 2.0 + spacing * (i + 1)
+		bx.position = Vector3(box_x, box_y, box_z + offset_z)
+		bx.set_meta("active", true)
+		bx.set_meta("respawn_timer", 0.0)
+		world_node.add_child(bx)
+		mystery_boxes.append(bx)
+
+
+func _check_mystery_box_collisions(delta: float) -> void:
+	for box in mystery_boxes:
+		if not box or not is_instance_valid(box):
+			continue
+
+		# Respawn timer
+		if not box.get_meta("active"):
+			var timer = box.get_meta("respawn_timer") - delta
+			if timer <= 0:
+				box.set_meta("active", true)
+				box.visible = true
+			else:
+				box.set_meta("respawn_timer", timer)
+			continue
+
+		# Rotate the box for visual effect
+		box.rotate_y(2.0 * delta)
+
+		# Check kart collision
+		for kart in karts:
+			if not kart or kart.held_item != "":
+				continue  # already has an item
+			var d = kart.global_position.distance_to(box.global_position)
+			if d < 4.0:
+				# Give random item
+				var items = ["missile", "oil", "boost"]
+				kart.held_item = items[randi() % items.size()]
+				# Deactivate box for 8 seconds
+				box.set_meta("active", false)
+				box.set_meta("respawn_timer", 8.0)
+				box.visible = false
+				break
+
+
+func _update_missiles(delta: float) -> void:
+	var to_remove: Array = []
+	for missile in missiles:
+		if not missile or not is_instance_valid(missile):
+			continue
+
+		var lifetime = missile.get_meta("lifetime") - delta
+		missile.set_meta("lifetime", lifetime)
+		if lifetime <= 0:
+			to_remove.append(missile)
+			continue
+
+		var vel = missile.get_meta("velocity") as Vector3
+		var owner_id = missile.get_meta("owner_id") as int
+
+		# Home toward nearest opponent
+		var nearest_dist = 9999.0
+		var nearest_kart = null
+		for kart in karts:
+			if not kart or kart.player_id == owner_id:
+				continue
+			var d = missile.global_position.distance_to(kart.global_position)
+			if d < nearest_dist:
+				nearest_dist = d
+				nearest_kart = kart
+
+		if nearest_kart:
+			var to_target = (nearest_kart.global_position + Vector3(0, 1.5, 0) - missile.global_position).normalized()
+			vel = vel.normalized().lerp(to_target, 3.0 * delta) * vel.length()
+			missile.set_meta("velocity", vel)
+			missile.look_at(missile.global_position + vel)
+
+		missile.global_position += vel * delta
+
+		# Keep missile above ground
+		var gy = get_ground_height(missile.global_position.x, missile.global_position.z) + 1.5
+		if missile.global_position.y < gy:
+			missile.global_position.y = gy
+
+		# Hit detection
+		for kart in karts:
+			if not kart or kart.player_id == owner_id or kart.is_spinning_out:
+				continue
+			if missile.global_position.distance_to(kart.global_position) < 4.0:
+				kart.start_spinout()
+				to_remove.append(missile)
+				break
+
+		# Wall check
+		if abs(missile.global_position.x) > ARENA_SIZE or abs(missile.global_position.z) > ARENA_SIZE:
+			to_remove.append(missile)
+
+	for m in to_remove:
+		missiles.erase(m)
+		m.queue_free()
 
 
 func get_ground_height(x: float, z: float) -> float:

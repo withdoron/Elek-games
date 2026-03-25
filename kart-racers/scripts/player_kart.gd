@@ -21,13 +21,14 @@ var is_spinning_out: bool = false
 var spinout_timer: float = 0.0
 const SPINOUT_DURATION = 1.5
 
-# Oil spill weapon
-var oil_count: int = 2
-signal drop_oil(player_id: int, pos: Vector3)
+# Item system — from mystery boxes
+var held_item: String = ""  # "missile", "oil", "boost", or ""
+signal use_item(player_id: int, item: String, pos: Vector3, forward: Vector3)
 
-# Lap tracking
+# Lap tracking — angle-based for accuracy
 var lap_count: int = 0
-var last_half: int = 0
+var last_angle: float = 0.0
+var angle_accumulator: float = 0.0  # total angle traveled
 signal lap_completed(player_id: int, lap: int)
 
 # Race state
@@ -114,6 +115,8 @@ func _ready() -> void:
 	_setup_dirt_particles()
 	_setup_drift_sparks()
 	_setup_engine_audio()
+	# Initialize lap angle from starting position
+	last_angle = atan2(global_position.z, global_position.x)
 
 
 func _physics_process(delta: float) -> void:
@@ -189,15 +192,19 @@ func _physics_process(delta: float) -> void:
 	if player_id == 0 and Input.is_key_pressed(KEY_SPACE):
 		drift_button = true
 
-	var oil_button = Input.is_joy_button_pressed(device, JOY_BUTTON_Y)
+	# Item use = Y button or E key
+	var item_button = Input.is_joy_button_pressed(device, JOY_BUTTON_Y)
 	if player_id == 0 and Input.is_key_pressed(KEY_E):
-		oil_button = true
+		item_button = true
 
-	# --- Oil drop ---
-	if oil_button and oil_count > 0 and on_ground:
-		oil_count -= 1
-		var drop_pos = global_position + transform.basis.z * 3.0
-		emit_signal("drop_oil", player_id, drop_pos)
+	if item_button and held_item != "" and on_ground:
+		var fwd = -transform.basis.z.normalized()
+		emit_signal("use_item", player_id, held_item, global_position, fwd)
+		if held_item == "boost":
+			# Instant boost — apply directly
+			drift_boost_timer = 1.5
+			speed = max(speed, Settings.max_speed * 0.9)
+		held_item = ""
 
 	# --- MK64 Powerslide ---
 	if drift_button and on_ground and abs(speed) > 8.0:
@@ -302,8 +309,8 @@ func _physics_process(delta: float) -> void:
 	if is_drifting:
 		move_velocity = forward_vel + lateral * 0.96
 	elif in_mud:
-		# Mud: terrible traction — truck slides like ice
-		move_velocity = forward_vel + lateral * 0.985
+		# Mud: nearly zero traction — truck slides like on ice
+		move_velocity = forward_vel + lateral * 0.995
 	else:
 		var speed_slide = clamp(abs(speed) / max(s.max_speed, 1.0), 0.0, 1.0)
 		var effective_grip = lerp(s.drift_factor * 0.5, s.drift_factor, 1.0 - speed_slide * 0.4)
@@ -359,13 +366,31 @@ func _physics_process(delta: float) -> void:
 	else:
 		on_ground = false
 
-	# Lap tracking
-	var current_half = 0 if global_position.x > 0 else 1
-	if current_half != last_half:
-		if last_half == 1 and current_half == 0 and global_position.z < 0:
-			lap_count += 1
-			emit_signal("lap_completed", player_id, lap_count)
-		last_half = current_half
+	# Lap tracking — angle around the oval
+	# Compute current angle on the oval (atan2 gives -PI to PI)
+	var cur_angle = atan2(global_position.z, global_position.x)
+	var angle_delta = cur_angle - last_angle
+
+	# Handle wraparound (-PI to PI boundary)
+	if angle_delta > PI:
+		angle_delta -= TAU
+	elif angle_delta < -PI:
+		angle_delta += TAU
+
+	angle_accumulator += angle_delta
+	last_angle = cur_angle
+
+	# A full lap = accumulated angle crosses a multiple of TAU
+	# We go counter-clockwise (positive angle direction) based on start at angle=0
+	# Check if we've crossed the finish line (angle=0, x>0, z~0)
+	if angle_accumulator <= -TAU:
+		angle_accumulator += TAU
+		lap_count += 1
+		emit_signal("lap_completed", player_id, lap_count)
+	elif angle_accumulator >= TAU:
+		angle_accumulator -= TAU
+		lap_count += 1
+		emit_signal("lap_completed", player_id, lap_count)
 
 	_align_to_terrain(delta)
 	_update_audio(on_road, in_mud)
@@ -494,17 +519,16 @@ func _setup_engine_audio() -> void:
 	data.resize(samples * 2)
 	for i in range(samples):
 		var t = float(i) / sample_rate
-		# Engine: sawtooth-like with harmonics for a raspy growl
+		# Deep V8-style engine — lower fundamentals, harsh clipping
 		var wave = 0.0
-		# Fundamental + odd harmonics = more buzz/rasp than pure sine
-		wave += sin(t * 55.0 * TAU) * 0.3  # low rumble
-		wave += sin(t * 110.0 * TAU) * 0.25  # main tone
-		wave += sin(t * 220.0 * TAU) * 0.15  # 2nd harmonic
-		wave += sin(t * 330.0 * TAU) * 0.1   # 3rd harmonic
-		wave += sin(t * 440.0 * TAU) * 0.08  # 4th
-		# Clipping for a harder, more mechanical sound
-		wave = clamp(wave * 1.5, -0.8, 0.8)
-		var sample_val = int(wave * 20000)
+		wave += sin(t * 30.0 * TAU) * 0.4   # deep bass rumble
+		wave += sin(t * 60.0 * TAU) * 0.35  # main low tone
+		wave += sin(t * 120.0 * TAU) * 0.2  # 1st harmonic
+		wave += sin(t * 180.0 * TAU) * 0.12 # growl
+		wave += sin(t * 240.0 * TAU) * 0.08 # rasp
+		# Hard clipping for mechanical harshness
+		wave = clamp(wave * 2.0, -0.7, 0.7)
+		var sample_val = int(wave * 24000)
 		data.encode_s16(i * 2, sample_val)
 
 	audio.data = data
@@ -518,8 +542,8 @@ func _update_audio(on_road: bool, in_mud: bool) -> void:
 	if not engine_audio:
 		return
 	var spd_ratio = clamp(abs(speed) / max(Settings.max_speed, 1.0), 0.0, 1.0)
-	# Engine pitch: idle at 0.4, revving up to 2.5
-	engine_audio.pitch_scale = 0.4 + spd_ratio * 2.1
+	# Engine pitch: deep idle at 0.3, revving up to 2.0
+	engine_audio.pitch_scale = 0.3 + spd_ratio * 1.7
 	engine_audio.volume_db = -8.0 + spd_ratio * 8.0
 	if drift_boost_timer > 0:
 		engine_audio.pitch_scale += 0.4
