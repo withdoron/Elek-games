@@ -19,7 +19,7 @@ const HILLS = [
 # Oval road parameters
 const OVAL_RX = 120.0  # X radius
 const OVAL_RZ = 80.0   # Z radius
-const ROAD_WIDTH = 12.0
+const ROAD_WIDTH = 24.0
 const ROAD_SEGMENTS = 300
 
 
@@ -121,7 +121,7 @@ func _build_oval_road() -> void:
 	st.set_material(mat)
 
 	var road_half_w = ROAD_WIDTH / 2.0
-	var road_lift = 0.05
+	var road_lift = 0.15
 
 	for i in range(ROAD_SEGMENTS):
 		var t0 = (float(i) / ROAD_SEGMENTS) * TAU

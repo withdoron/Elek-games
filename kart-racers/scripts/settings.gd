@@ -1,11 +1,11 @@
 extends Node
 
 # === SPEED ===
-var max_speed: float = 25.0
-var acceleration: float = 15.0
-var brake_force: float = 20.0
-var reverse_speed: float = 8.0
-var coast_decel: float = 5.0
+var max_speed: float = 38.0
+var acceleration: float = 22.0
+var brake_force: float = 30.0
+var reverse_speed: float = 12.0
+var coast_decel: float = 7.0
 
 # === STEERING ===
 var turn_speed: float = 2.5
@@ -28,11 +28,11 @@ var master_volume: float = 1.0
 
 # Setting metadata: [default, min, max, step, section]
 const SETTING_META := {
-	"max_speed":        [25.0, 10.0, 50.0, 0.5, "SPEED"],
-	"acceleration":     [15.0, 5.0, 30.0, 0.5, "SPEED"],
-	"brake_force":      [20.0, 10.0, 40.0, 0.5, "SPEED"],
-	"reverse_speed":    [8.0, 3.0, 15.0, 0.5, "SPEED"],
-	"coast_decel":      [5.0, 1.0, 15.0, 0.5, "SPEED"],
+	"max_speed":        [38.0, 10.0, 75.0, 0.5, "SPEED"],
+	"acceleration":     [22.0, 5.0, 45.0, 0.5, "SPEED"],
+	"brake_force":      [30.0, 10.0, 60.0, 0.5, "SPEED"],
+	"reverse_speed":    [12.0, 3.0, 22.0, 0.5, "SPEED"],
+	"coast_decel":      [7.0, 1.0, 20.0, 0.5, "SPEED"],
 	"turn_speed":       [2.5, 1.0, 5.0, 0.1, "STEERING"],
 	"turn_speed_factor":[0.8, 0.3, 1.0, 0.01, "STEERING"],
 	"return_to_center": [5.0, 1.0, 10.0, 0.5, "STEERING"],

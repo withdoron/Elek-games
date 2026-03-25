@@ -14,11 +14,13 @@ var truck_body: MeshInstance3D  # main body mesh for future color changes
 var front_pivots: Array = []  # [FL_pivot, FR_pivot] — rotate Y for steering
 var wheel_meshes: Array = []  # [FL, FR, RL, RR] — rotate X for spin
 var camera: Camera3D
+var dirt_particles: Array = []  # [left_particles, right_particles]
 
 
 func _ready() -> void:
 	_build_truck()
 	_setup_camera()
+	_setup_dirt_particles()
 
 
 func _physics_process(delta: float) -> void:
@@ -162,6 +164,50 @@ func _get_ground_height(x: float, z: float) -> float:
 	return h
 
 
+func _setup_dirt_particles() -> void:
+	# CPUParticles3D behind each rear wheel for dirt kick-up
+	var rear_positions = [
+		Vector3(-1.4, 0.3, 1.8),  # behind left rear
+		Vector3(1.4, 0.3, 1.8),   # behind right rear
+	]
+	for pos in rear_positions:
+		var particles = CPUParticles3D.new()
+		particles.name = "DirtParticles"
+		particles.position = pos
+		particles.emitting = false
+		particles.amount = 20
+		particles.lifetime = 0.8
+		particles.speed_scale = 1.5
+		particles.explosiveness = 0.1
+
+		# Direction: spray backward and up
+		particles.direction = Vector3(0, 1, 1)
+		particles.spread = 25.0
+		particles.initial_velocity_min = 2.0
+		particles.initial_velocity_max = 5.0
+		particles.gravity = Vector3(0, -8, 0)
+
+		# Size
+		particles.scale_amount_min = 0.15
+		particles.scale_amount_max = 0.4
+
+		# Color: brown dirt fading out
+		particles.color = Color(0.45, 0.35, 0.2, 0.8)
+		var color_ramp = Gradient.new()
+		color_ramp.set_color(0, Color(0.5, 0.4, 0.25, 0.9))
+		color_ramp.set_color(1, Color(0.4, 0.3, 0.2, 0.0))
+		particles.color_ramp = color_ramp
+
+		# Mesh for each particle — small sphere
+		var particle_mesh = SphereMesh.new()
+		particle_mesh.radius = 0.1
+		particle_mesh.height = 0.2
+		particles.mesh = particle_mesh
+
+		body_mesh.add_child(particles)
+		dirt_particles.append(particles)
+
+
 func _update_visuals(delta: float, steer_input: float) -> void:
 	# --- Front wheel steering ---
 	var visual_steer = -steer_input * 0.5
@@ -174,6 +220,17 @@ func _update_visuals(delta: float, steer_input: float) -> void:
 	for i in range(wheel_meshes.size()):
 		if wheel_meshes[i]:
 			wheel_meshes[i].rotate_x(spin_rate)
+
+	# --- Dirt kick-up particles proportional to speed ---
+	var spd_ratio = clamp(abs(speed) / max(Settings.max_speed, 1.0), 0.0, 1.0)
+	for p in dirt_particles:
+		if spd_ratio > 0.1:
+			p.emitting = true
+			p.initial_velocity_min = 2.0 + spd_ratio * 6.0
+			p.initial_velocity_max = 5.0 + spd_ratio * 10.0
+			p.amount = int(10 + spd_ratio * 30)
+		else:
+			p.emitting = false
 
 	# Body tilt is handled by _align_to_terrain
 
