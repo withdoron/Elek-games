@@ -4,8 +4,12 @@ var speed: float = 0.0
 var steer_angle: float = 0.0
 var kart_tilt: float = 0.0
 
+# Ground clearance — bottom of big wheels
+const GROUND_OFFSET = 0.8
+
 # Node references
 var body_mesh: Node3D
+var truck_body: MeshInstance3D  # main body mesh for future color changes
 var front_pivots: Array = []  # [FL_pivot, FR_pivot] — rotate Y for steering
 var wheel_meshes: Array = []  # [FL, FR, RL, RR] — rotate X for spin
 var camera: Camera3D
@@ -13,7 +17,7 @@ var ground_ray: RayCast3D
 
 
 func _ready() -> void:
-	_build_kart()
+	_build_truck()
 	_setup_camera()
 	_setup_ground_ray()
 
@@ -103,28 +107,27 @@ func _physics_process(delta: float) -> void:
 
 	# --- Gravity and ground detection ---
 	var ground_y = _get_ground_height(global_position.x, global_position.z)
-	var on_ground = global_position.y <= ground_y + 0.6
+	var on_ground = global_position.y <= ground_y + GROUND_OFFSET + 0.1
 
 	if on_ground:
 		velocity.y = 0
-		global_position.y = ground_y + 0.5
+		global_position.y = ground_y + GROUND_OFFSET
 	else:
 		velocity.y -= s.gravity * delta
 
 	move_and_slide()
 
 	# --- Hard ground clamp after move_and_slide ---
-	# Raycast method: detect actual collision surfaces
 	if ground_ray and ground_ray.is_colliding():
 		var ground_point = ground_ray.get_collision_point()
-		if global_position.y < ground_point.y + 0.5:
-			global_position.y = ground_point.y + 0.5
+		if global_position.y < ground_point.y + GROUND_OFFSET:
+			global_position.y = ground_point.y + GROUND_OFFSET
 			if velocity.y < 0:
 				velocity.y = 0
 	else:
 		# Fallback: sine wave height function
 		ground_y = _get_ground_height(global_position.x, global_position.z)
-		var min_y = ground_y + 0.5
+		var min_y = ground_y + GROUND_OFFSET
 		if global_position.y < min_y:
 			global_position.y = min_y
 			velocity.y = max(velocity.y, 0)
@@ -134,7 +137,6 @@ func _physics_process(delta: float) -> void:
 
 
 func _get_ground_height(x: float, z: float) -> float:
-	# Gentle rolling hills using sine waves
 	var h = 0.0
 	h += sin(x * 0.02) * 1.5
 	h += sin(z * 0.03) * 1.0
@@ -144,8 +146,7 @@ func _get_ground_height(x: float, z: float) -> float:
 
 func _update_visuals(delta: float, steer_input: float) -> void:
 	# --- Front wheel steering ---
-	# Pivot nodes rotate on Y for steering visual
-	var visual_steer = steer_input * 0.5  # Max ~28 degrees
+	var visual_steer = steer_input * 0.5
 	for pivot in front_pivots:
 		if pivot:
 			pivot.rotation.y = lerp(pivot.rotation.y, visual_steer, delta * 10.0)
@@ -156,44 +157,90 @@ func _update_visuals(delta: float, steer_input: float) -> void:
 		if wheel_meshes[i]:
 			wheel_meshes[i].rotate_x(spin_rate)
 
-	# --- Kart body tilt into turns ---
+	# --- Body tilt into turns ---
 	var target_tilt = -steer_angle * 0.05
 	kart_tilt = lerp(kart_tilt, target_tilt, 5.0 * delta)
 	if body_mesh:
 		body_mesh.rotation.z = kart_tilt
 
 
-func _build_kart() -> void:
+func _build_truck() -> void:
+	var primary_color = Color(0.2, 0.35, 0.8)
+	var chrome = Color(0.6, 0.6, 0.65)
+	var dark_grey = Color(0.15, 0.15, 0.15)
+
 	body_mesh = Node3D.new()
 	body_mesh.name = "BodyMesh"
 	add_child(body_mesh)
 
-	# Main body - blue
-	var body_box = _make_box(Vector3(2.0, 0.7, 3.0), Color(0.2, 0.35, 0.8))
-	body_box.position = Vector3(0, 0.55, 0)
-	body_mesh.add_child(body_box)
+	# --- 1. FRAME / CHASSIS ---
+	var frame = _make_box(Vector3(2.2, 0.2, 3.5), dark_grey)
+	frame.position = Vector3(0, 1.0, 0)
+	body_mesh.add_child(frame)
 
-	# Cockpit/seat - white
-	var seat = _make_box(Vector3(1.2, 0.5, 1.0), Color(0.9, 0.9, 0.9))
-	seat.position = Vector3(0, 1.05, 0.2)
-	body_mesh.add_child(seat)
+	# --- 2. TRUCK CAB ---
+	# Lower body (hood + bed)
+	truck_body = _make_box_metallic(Vector3(2.0, 0.8, 3.2), primary_color, 0.4)
+	truck_body.position = Vector3(0, 1.5, 0)
+	body_mesh.add_child(truck_body)
 
-	# Nose wedge - darker blue
-	var nose = _make_box(Vector3(1.6, 0.4, 0.8), Color(0.15, 0.25, 0.6))
-	nose.position = Vector3(0, 0.45, -1.4)
-	body_mesh.add_child(nose)
+	# Cab (windowed part)
+	var cab = _make_box_metallic(Vector3(1.8, 0.7, 1.4), primary_color.darkened(0.15), 0.4)
+	cab.position = Vector3(0, 2.2, -0.3)
+	body_mesh.add_child(cab)
 
-	# Rear bumper
-	var bumper = _make_box(Vector3(2.2, 0.35, 0.3), Color(0.3, 0.3, 0.3))
-	bumper.position = Vector3(0, 0.45, 1.6)
-	body_mesh.add_child(bumper)
+	# Windshield
+	var windshield = _make_box(Vector3(1.6, 0.5, 0.08), Color(0.5, 0.7, 1.0, 0.4))
+	windshield.position = Vector3(0, 2.2, -1.0)
+	windshield.rotation.x = deg_to_rad(-15)
+	# Make windshield transparent
+	var ws_mat = windshield.material_override as StandardMaterial3D
+	ws_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	body_mesh.add_child(windshield)
 
-	# Wheel positions: [FL, FR, RL, RR]
+	# Rear window
+	var rear_window = _make_box(Vector3(1.6, 0.45, 0.08), Color(0.5, 0.7, 1.0, 0.4))
+	rear_window.position = Vector3(0, 2.2, 0.4)
+	var rw_mat = rear_window.material_override as StandardMaterial3D
+	rw_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	body_mesh.add_child(rear_window)
+
+	# Truck bed (open back)
+	var bed = _make_box_metallic(Vector3(2.0, 0.5, 1.2), primary_color, 0.4)
+	bed.position = Vector3(0, 1.3, 1.3)
+	body_mesh.add_child(bed)
+
+	# --- 3. FRONT GRILLE ---
+	var grille = _make_box_metallic(Vector3(1.8, 0.5, 0.1), chrome, 0.7)
+	grille.position = Vector3(0, 1.5, -1.65)
+	body_mesh.add_child(grille)
+
+	# --- 4. BUMPERS ---
+	var front_bumper = _make_box_metallic(Vector3(2.2, 0.2, 0.15), chrome, 0.7)
+	front_bumper.position = Vector3(0, 1.1, -1.7)
+	body_mesh.add_child(front_bumper)
+
+	var rear_bumper = _make_box_metallic(Vector3(2.2, 0.2, 0.15), chrome, 0.7)
+	rear_bumper.position = Vector3(0, 1.1, 1.85)
+	body_mesh.add_child(rear_bumper)
+
+	# --- 5. HEADLIGHTS ---
+	var hl_color = Color(1.0, 0.9, 0.3)
+	for x_pos in [-0.6, 0.6]:
+		var hl = _make_box(Vector3(0.3, 0.2, 0.05), hl_color)
+		hl.position = Vector3(x_pos, 1.6, -1.66)
+		var hl_mat = hl.material_override as StandardMaterial3D
+		hl_mat.emission_enabled = true
+		hl_mat.emission = hl_color
+		hl_mat.emission_energy_multiplier = 2.0
+		body_mesh.add_child(hl)
+
+	# --- 6. MONSTER WHEELS ---
 	var wheel_positions = [
-		Vector3(-1.1, 0.35, -1.0),  # FL
-		Vector3(1.1, 0.35, -1.0),   # FR
-		Vector3(-1.1, 0.35, 1.0),   # RL
-		Vector3(1.1, 0.35, 1.0),    # RR
+		Vector3(-1.4, 0.8, -1.1),  # FL
+		Vector3(1.4, 0.8, -1.1),   # FR
+		Vector3(-1.4, 0.8, 1.1),   # RL
+		Vector3(1.4, 0.8, 1.1),    # RR
 	]
 
 	front_pivots = []
@@ -201,40 +248,49 @@ func _build_kart() -> void:
 
 	for i in range(4):
 		var is_front = i < 2
-		var wheel = _make_wheel(0.35, 0.25)
+		var wheel_assembly = _make_monster_wheel()
 
 		if is_front:
-			# Front wheels: pivot node for steering, wheel mesh as child for spin
 			var pivot = Node3D.new()
 			pivot.name = "WheelPivot_%d" % i
 			pivot.position = wheel_positions[i]
 			body_mesh.add_child(pivot)
-
-			wheel.position = Vector3.ZERO  # local to pivot
-			pivot.add_child(wheel)
-
+			wheel_assembly.position = Vector3.ZERO
+			pivot.add_child(wheel_assembly)
 			front_pivots.append(pivot)
-			wheel_meshes.append(wheel)
+			wheel_meshes.append(wheel_assembly)
 		else:
-			# Rear wheels: directly on body, only spin
-			wheel.position = wheel_positions[i]
-			body_mesh.add_child(wheel)
-			wheel_meshes.append(wheel)
+			wheel_assembly.position = wheel_positions[i]
+			body_mesh.add_child(wheel_assembly)
+			wheel_meshes.append(wheel_assembly)
 
-	# Collision shape
+	# --- 7. SUSPENSION STRUTS ---
+	for wp in wheel_positions:
+		var strut = _make_cylinder(0.06, 0.8, dark_grey)
+		strut.position = Vector3(wp.x * 0.7, 0.9, wp.z)
+		body_mesh.add_child(strut)
+
+	# --- 8. EXHAUST PIPES ---
+	var exhaust_color = Color(0.2, 0.2, 0.22)
+	for x_pos in [-0.5, 0.5]:
+		var exhaust = _make_cylinder_metallic(0.06, 0.5, exhaust_color, 0.5)
+		exhaust.position = Vector3(x_pos, 1.8, 1.5)
+		body_mesh.add_child(exhaust)
+
+	# --- 9. COLLISION SHAPE ---
 	var col = CollisionShape3D.new()
 	var box_shape = BoxShape3D.new()
-	box_shape.size = Vector3(2.0, 0.8, 3.0)
+	box_shape.size = Vector3(2.2, 1.5, 3.5)
 	col.shape = box_shape
-	col.position = Vector3(0, 0.6, 0)
+	col.position = Vector3(0, 1.5, 0)
 	add_child(col)
 
 
 func _setup_camera() -> void:
 	camera = Camera3D.new()
 	camera.name = "ChaseCamera"
-	camera.position = Vector3(0, 4, 8)
-	camera.rotation_degrees = Vector3(-20, 0, 0)
+	camera.position = Vector3(0, 5.5, 10)
+	camera.rotation.x = deg_to_rad(-12)
 	camera.current = true
 	add_child(camera)
 
@@ -250,15 +306,63 @@ func _make_box(size: Vector3, color: Color) -> MeshInstance3D:
 	return mesh_inst
 
 
-func _make_wheel(radius: float, width: float) -> MeshInstance3D:
+func _make_box_metallic(size: Vector3, color: Color, metallic: float) -> MeshInstance3D:
+	var mesh_inst = _make_box(size, color)
+	var mat = mesh_inst.material_override as StandardMaterial3D
+	mat.metallic = metallic
+	return mesh_inst
+
+
+func _make_cylinder(radius: float, height: float, color: Color) -> MeshInstance3D:
 	var mesh_inst = MeshInstance3D.new()
 	var cyl = CylinderMesh.new()
 	cyl.top_radius = radius
 	cyl.bottom_radius = radius
-	cyl.height = width
+	cyl.height = height
 	mesh_inst.mesh = cyl
-	mesh_inst.rotation_degrees = Vector3(0, 0, 90)
 	var mat = StandardMaterial3D.new()
-	mat.albedo_color = Color(0.15, 0.15, 0.15)
+	mat.albedo_color = color
 	mesh_inst.material_override = mat
 	return mesh_inst
+
+
+func _make_cylinder_metallic(radius: float, height: float, color: Color, metallic: float) -> MeshInstance3D:
+	var mesh_inst = _make_cylinder(radius, height, color)
+	var mat = mesh_inst.material_override as StandardMaterial3D
+	mat.metallic = metallic
+	return mesh_inst
+
+
+func _make_monster_wheel() -> Node3D:
+	# Parent node that gets rotate_x for spin
+	var wheel_node = Node3D.new()
+
+	# Tire (outer)
+	var tire = MeshInstance3D.new()
+	var tire_cyl = CylinderMesh.new()
+	tire_cyl.top_radius = 0.8
+	tire_cyl.bottom_radius = 0.8
+	tire_cyl.height = 0.6
+	tire.mesh = tire_cyl
+	tire.rotation_degrees = Vector3(0, 0, 90)
+	var tire_mat = StandardMaterial3D.new()
+	tire_mat.albedo_color = Color(0.1, 0.1, 0.1)
+	tire_mat.roughness = 1.0
+	tire.material_override = tire_mat
+	wheel_node.add_child(tire)
+
+	# Rim (inner)
+	var rim = MeshInstance3D.new()
+	var rim_cyl = CylinderMesh.new()
+	rim_cyl.top_radius = 0.35
+	rim_cyl.bottom_radius = 0.35
+	rim_cyl.height = 0.62
+	rim.mesh = rim_cyl
+	rim.rotation_degrees = Vector3(0, 0, 90)
+	var rim_mat = StandardMaterial3D.new()
+	rim_mat.albedo_color = Color(0.5, 0.5, 0.55)
+	rim_mat.metallic = 0.6
+	rim.material_override = rim_mat
+	wheel_node.add_child(rim)
+
+	return wheel_node
