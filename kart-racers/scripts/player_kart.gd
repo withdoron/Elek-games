@@ -54,11 +54,15 @@ func _physics_process(delta: float) -> void:
 	if abs(stick_x) > s.deadzone:
 		steer_input = clamp(steer_input + stick_x * s.stick_sensitivity, -1.0, 1.0)
 
-	# Gamepad face buttons as fallback
+	# Gamepad face buttons: A = gas, X = brake/reverse
 	if Input.is_joy_button_pressed(0, JOY_BUTTON_A):
 		throttle = max(throttle, 1.0)
-	if Input.is_joy_button_pressed(0, JOY_BUTTON_B):
+	if Input.is_joy_button_pressed(0, JOY_BUTTON_X):
 		brake_input = max(brake_input, 1.0)
+
+	# Bumpers reserved for jump/powerslide (LB / RB)
+	# var lb_pressed = Input.is_joy_button_pressed(0, JOY_BUTTON_LEFT_SHOULDER)
+	# var rb_pressed = Input.is_joy_button_pressed(0, JOY_BUTTON_RIGHT_SHOULDER)
 
 	# --- Speed ---
 	if throttle > 0.0 and speed >= 0.0:
