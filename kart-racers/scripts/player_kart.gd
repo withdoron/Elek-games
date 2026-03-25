@@ -105,32 +105,27 @@ func _physics_process(delta: float) -> void:
 	velocity.x = drifted_vel.x
 	velocity.z = drifted_vel.z
 
-	# --- Gravity and ground detection ---
-	var ground_y = _get_ground_height(global_position.x, global_position.z)
-	var on_ground = global_position.y <= ground_y + GROUND_OFFSET + 0.1
+	# --- Gravity (heavy monster truck) ---
+	var grav = 60.0
+	velocity.y -= grav * delta
 
-	if on_ground:
+	# Kill any upward velocity — truck stays planted
+	if velocity.y > 0:
 		velocity.y = 0
-		global_position.y = ground_y + GROUND_OFFSET
-	else:
-		velocity.y -= s.gravity * delta
 
 	move_and_slide()
 
-	# --- Hard ground clamp after move_and_slide ---
+	# --- Aggressive ground clamp after move_and_slide ---
+	# Find the actual ground height using raycast or fallback
+	var target_y = _get_ground_height(global_position.x, global_position.z) + GROUND_OFFSET
 	if ground_ray and ground_ray.is_colliding():
-		var ground_point = ground_ray.get_collision_point()
-		if global_position.y < ground_point.y + GROUND_OFFSET:
-			global_position.y = ground_point.y + GROUND_OFFSET
-			if velocity.y < 0:
-				velocity.y = 0
-	else:
-		# Fallback: sine wave height function
-		ground_y = _get_ground_height(global_position.x, global_position.z)
-		var min_y = ground_y + GROUND_OFFSET
-		if global_position.y < min_y:
-			global_position.y = min_y
-			velocity.y = max(velocity.y, 0)
+		var ray_y = ground_ray.get_collision_point().y + GROUND_OFFSET
+		target_y = max(target_y, ray_y)
+
+	# ALWAYS snap to ground — never float more than 1 unit above
+	if global_position.y < target_y or global_position.y > target_y + 1.0:
+		global_position.y = target_y
+		velocity.y = 0
 
 	# --- Visuals ---
 	_update_visuals(delta, steer_input)
