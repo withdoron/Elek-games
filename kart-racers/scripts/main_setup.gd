@@ -89,13 +89,13 @@ func _build_straight_road() -> void:
 
 		var slope_angle = atan2(h_front - h_back, seg_length)
 
-		# Make each strip a thick slab so tilted edges overlap and fill gaps
+		# Deep slab — bulk is hidden below surface, top face is the road
 		var segment = MeshInstance3D.new()
 		var box = BoxMesh.new()
-		box.size = Vector3(road_width, 0.4, seg_length * 1.15)
+		box.size = Vector3(road_width, 3.0, seg_length * 1.15)
 		segment.mesh = box
 		segment.material_override = road_mat
-		segment.position = Vector3(0, h_mid - 0.1, z_mid)
+		segment.position = Vector3(0, h_mid - 1.4, z_mid)
 		segment.rotation.x = slope_angle
 		add_child(segment)
 
