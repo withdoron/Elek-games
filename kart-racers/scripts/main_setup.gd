@@ -89,13 +89,13 @@ func _build_straight_road() -> void:
 
 		var slope_angle = atan2(h_front - h_back, seg_length)
 
-		# Deep slab — bulk is hidden below surface, top face is the road
+		# Deep slab — 2x Z overlap so steep slopes have no gaps
 		var segment = MeshInstance3D.new()
 		var box = BoxMesh.new()
-		box.size = Vector3(road_width, 3.0, seg_length * 1.15)
+		box.size = Vector3(road_width, 6.0, seg_length * 2.0)
 		segment.mesh = box
 		segment.material_override = road_mat
-		segment.position = Vector3(0, h_mid - 1.4, z_mid)
+		segment.position = Vector3(0, h_mid - 2.9, z_mid)
 		segment.rotation.x = slope_angle
 		add_child(segment)
 
@@ -125,27 +125,27 @@ func _build_hill_terrain() -> void:
 
 		var slope = atan2(h_front - h_back, z_step_size)
 
-		# Deep slabs — bulk hidden below, top face is visible hill surface
+		# Deep slabs — 2x Z overlap so steep slopes have no gaps
 		var half_w = (strip_width / 2.0) - 5.5
 		var x_offset = (strip_width / 4.0) + 2.75
 
 		# Left side
 		var left_strip = MeshInstance3D.new()
 		var left_box = BoxMesh.new()
-		left_box.size = Vector3(half_w, 3.0, z_step_size * 1.15)
+		left_box.size = Vector3(half_w, 6.0, z_step_size * 2.0)
 		left_strip.mesh = left_box
 		left_strip.material_override = hill_mat
-		left_strip.position = Vector3(-x_offset, h_mid - 1.4, z_mid)
+		left_strip.position = Vector3(-x_offset, h_mid - 2.9, z_mid)
 		left_strip.rotation.x = slope
 		add_child(left_strip)
 
 		# Right side
 		var right_strip = MeshInstance3D.new()
 		var right_box = BoxMesh.new()
-		right_box.size = Vector3(half_w, 3.0, z_step_size * 1.15)
+		right_box.size = Vector3(half_w, 6.0, z_step_size * 2.0)
 		right_strip.mesh = right_box
 		right_strip.material_override = hill_mat
-		right_strip.position = Vector3(x_offset, h_mid - 1.4, z_mid)
+		right_strip.position = Vector3(x_offset, h_mid - 2.9, z_mid)
 		right_strip.rotation.x = slope
 		add_child(right_strip)
 
