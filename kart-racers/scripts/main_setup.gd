@@ -8,12 +8,17 @@ var menu_ui: Control
 const ARENA_SIZE = 200.0
 
 # Hill definitions: [center_x, center_z, height, radius]
+# Hills placed safely INSIDE or OUTSIDE the oval road — never ON it
 const HILLS = [
-	[0.0, -50.0, 12.0, 30.0],
-	[80.0, 40.0, 8.0, 25.0],
-	[-70.0, -30.0, 6.0, 20.0],
-	[40.0, -100.0, 10.0, 22.0],
-	[-50.0, 70.0, 5.0, 18.0],
+	# Inside the oval (center area)
+	[0.0, 0.0, 10.0, 25.0],       # big center hill
+	[-30.0, -25.0, 7.0, 18.0],    # left of center
+	[25.0, 20.0, 5.0, 15.0],      # right of center
+	# Outside the oval (beyond the road)
+	[160.0, 0.0, 12.0, 28.0],     # far right
+	[-160.0, -40.0, 8.0, 22.0],   # far left
+	[0.0, 140.0, 6.0, 20.0],      # far south
+	[0.0, -140.0, 9.0, 24.0],     # far north
 ]
 
 # Oval road parameters
