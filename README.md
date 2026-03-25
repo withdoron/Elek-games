@@ -1,2 +1,2 @@
-# Elek-games-
+# Elek-games
 Elek's games 
