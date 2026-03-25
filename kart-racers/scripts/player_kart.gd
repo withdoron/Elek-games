@@ -5,8 +5,8 @@ var steer_angle: float = 0.0
 var kart_tilt: float = 0.0
 var move_velocity: Vector3 = Vector3.ZERO  # manual velocity tracking for drift
 
-# Truck origin offset above ground (wheels already at correct height in model)
-const GROUND_OFFSET = 0.0
+# Offset above math ground height — compensates for mesh approximation error
+const GROUND_OFFSET = 0.3
 
 # Node references
 var body_mesh: Node3D
@@ -137,6 +137,11 @@ func _align_to_terrain(delta: float) -> void:
 	# Pitch (forward/back tilt) and roll (left/right tilt)
 	var target_pitch = atan2(h_front - h_back, d * 2.0)
 	var target_roll = atan2(h_right - h_left, d * 2.0)
+
+	# Clamp tilt to max ~30 degrees so truck doesn't flip on steep terrain
+	var max_tilt = deg_to_rad(30.0)
+	target_pitch = clamp(target_pitch, -max_tilt, max_tilt)
+	target_roll = clamp(target_roll, -max_tilt, max_tilt)
 
 	# All visual tilt on body_mesh — root stays flat for steering math
 	if body_mesh:

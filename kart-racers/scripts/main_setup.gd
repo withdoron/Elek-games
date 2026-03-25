@@ -126,8 +126,8 @@ func _build_oval_road() -> void:
 	st.set_material(mat)
 
 	var road_half_w = ROAD_WIDTH / 2.0
-	# Road sits clearly above terrain — 0.3 prevents any grass bleed
-	var road_lift = 0.3
+	# Road sits clearly above terrain — 0.5 prevents grass bleed on steep slopes
+	var road_lift = 0.5
 
 	for i in range(ROAD_SEGMENTS):
 		var t0 = (float(i) / ROAD_SEGMENTS) * TAU
