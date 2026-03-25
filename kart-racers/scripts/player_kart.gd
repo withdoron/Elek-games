@@ -105,8 +105,34 @@ func _physics_process(delta: float) -> void:
 	# --- ALWAYS snap Y to ground. Every frame. No exceptions. ---
 	global_position.y = _get_ground_height(global_position.x, global_position.z) + GROUND_OFFSET
 
+	# --- Tilt truck to match terrain slope ---
+	_align_to_terrain(delta)
+
 	# --- Visuals ---
 	_update_visuals(delta, steer_input)
+
+
+func _align_to_terrain(delta: float) -> void:
+	# Sample ground at 4 points around the truck to get slope
+	var d = 1.5
+	var pos = global_position
+	var fwd = -transform.basis.z.normalized()
+	var right_dir = transform.basis.x.normalized()
+
+	var h_front = _get_ground_height(pos.x + fwd.x * d, pos.z + fwd.z * d)
+	var h_back = _get_ground_height(pos.x - fwd.x * d, pos.z - fwd.z * d)
+	var h_left = _get_ground_height(pos.x - right_dir.x * d, pos.z - right_dir.z * d)
+	var h_right = _get_ground_height(pos.x + right_dir.x * d, pos.z + right_dir.z * d)
+
+	# Pitch (forward/back tilt) and roll (left/right tilt)
+	var target_pitch = atan2(h_front - h_back, d * 2.0)
+	var target_roll = atan2(h_right - h_left, d * 2.0)
+
+	# All visual tilt on body_mesh — root stays flat for steering math
+	if body_mesh:
+		var t = 8.0 * delta
+		body_mesh.rotation.x = lerp(body_mesh.rotation.x, target_pitch, t)
+		body_mesh.rotation.z = lerp(body_mesh.rotation.z, target_roll, t)
 
 
 func _get_ground_height(_x: float, z: float) -> float:
@@ -133,11 +159,7 @@ func _update_visuals(delta: float, steer_input: float) -> void:
 		if wheel_meshes[i]:
 			wheel_meshes[i].rotate_x(spin_rate)
 
-	# --- Body tilt into turns ---
-	var target_tilt = -steer_angle * 0.05
-	kart_tilt = lerp(kart_tilt, target_tilt, 5.0 * delta)
-	if body_mesh:
-		body_mesh.rotation.z = kart_tilt
+	# Body tilt is handled by _align_to_terrain
 
 
 func _build_truck() -> void:
