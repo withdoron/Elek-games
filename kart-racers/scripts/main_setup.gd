@@ -73,16 +73,16 @@ func _build_figure_eight_road() -> void:
 	road_mat.albedo_color = Color(0.45, 0.35, 0.22)
 
 	# Left loop center and right loop center
-	var centers := [Vector3(-loop_radius * 0.6, 0, 0), Vector3(loop_radius * 0.6, 0, 0)]
+	var centers: Array[Vector3] = [Vector3(-loop_radius * 0.6, 0, 0), Vector3(loop_radius * 0.6, 0, 0)]
 
-	for center in centers:
+	for center: Vector3 in centers:
 		for i in range(segments):
 			var angle := (float(i) / segments) * TAU
 			var next_angle := (float(i + 1) / segments) * TAU
 			var mid_angle := (angle + next_angle) / 2.0
 
-			var pos := center + Vector3(cos(mid_angle) * loop_radius, 0, sin(mid_angle) * loop_radius)
-			var dir := Vector3(-sin(mid_angle), 0, cos(mid_angle))
+			var pos: Vector3 = center + Vector3(cos(mid_angle) * loop_radius, 0, sin(mid_angle) * loop_radius)
+			var dir: Vector3 = Vector3(-sin(mid_angle), 0, cos(mid_angle))
 
 			# Road segment
 			var segment := MeshInstance3D.new()
