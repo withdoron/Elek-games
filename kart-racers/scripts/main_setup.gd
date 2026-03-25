@@ -50,8 +50,9 @@ func _process(_delta: float) -> void:
 		if karts[i] and i < oil_labels.size() and oil_labels[i]:
 			oil_labels[i].text = "Oil: %d" % karts[i].oil_count
 
-	# Check oil spill collisions
+	# Check collisions
 	_check_oil_collisions()
+	_check_truck_collisions()
 
 
 func _build_world() -> void:
@@ -246,9 +247,11 @@ func _physics_process(_delta: float) -> void:
 
 # === OIL SPILLS ===
 
-func _on_drop_oil(pid: int, pos: Vector3) -> void:
+func _on_drop_oil(_pid: int, pos: Vector3) -> void:
+	# Place oil ON the terrain surface
+	var terrain_y = get_ground_height(pos.x, pos.z)
 	var oil = MeshInstance3D.new()
-	oil.name = "OilSpill_P%d" % pid
+	oil.name = "OilSpill"
 	var cyl = CylinderMesh.new()
 	cyl.top_radius = 3.0
 	cyl.bottom_radius = 3.0
@@ -259,26 +262,58 @@ func _on_drop_oil(pid: int, pos: Vector3) -> void:
 	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	mat.metallic = 0.8
 	oil.material_override = mat
-	oil.position = Vector3(pos.x, pos.y + 0.1, pos.z)
-	oil.set_meta("owner_id", pid)
+	oil.position = Vector3(pos.x, terrain_y + 0.15, pos.z)
 	world_node.add_child(oil)
 	oil_spills.append(oil)
 
 
 func _check_oil_collisions() -> void:
+	# Oil affects ALL players (including the one who placed it)
+	var to_remove: Array = []
 	for oil in oil_spills:
 		if not oil or not is_instance_valid(oil):
 			continue
 		var oil_pos = oil.global_position
-		var owner_id = oil.get_meta("owner_id")
 		for kart in karts:
-			if not kart or kart.player_id == owner_id:
-				continue  # can't hit your own oil
-			if kart.is_spinning_out:
-				continue  # already spinning
+			if not kart or kart.is_spinning_out:
+				continue
 			var dist = Vector2(kart.global_position.x - oil_pos.x, kart.global_position.z - oil_pos.z).length()
 			if dist < 3.5:
 				kart.start_spinout()
+				# Oil is consumed on hit
+				to_remove.append(oil)
+				break
+	for oil in to_remove:
+		oil_spills.erase(oil)
+		oil.queue_free()
+
+
+func _check_truck_collisions() -> void:
+	# Trucks push each other — can't drive through
+	if karts.size() < 2:
+		return
+	for i in range(karts.size()):
+		for j in range(i + 1, karts.size()):
+			var a = karts[i]
+			var b = karts[j]
+			if not a or not b:
+				continue
+			var diff = Vector3(a.global_position.x - b.global_position.x, 0, a.global_position.z - b.global_position.z)
+			var dist = diff.length()
+			var push_radius = 3.5  # truck diameter
+			if dist < push_radius and dist > 0.01:
+				var push_dir = diff.normalized()
+				var overlap = push_radius - dist
+				var push_force = overlap * 0.5
+				# Push both trucks apart
+				a.global_position.x += push_dir.x * push_force
+				a.global_position.z += push_dir.z * push_force
+				b.global_position.x -= push_dir.x * push_force
+				b.global_position.z -= push_dir.z * push_force
+				# Transfer some speed on impact
+				var speed_transfer = (a.speed - b.speed) * 0.15
+				a.speed -= speed_transfer
+				b.speed += speed_transfer
 
 
 func _create_kart(id: int, color: Color) -> Node3D:
@@ -389,21 +424,26 @@ func _build_walls() -> void:
 
 
 func _build_start_finish_line() -> void:
-	var line_y = get_ground_height(OVAL_RX, 0) + 0.15
-	var line_width = ROAD_WIDTH + 4.0
-	var checks = 8
+	# Finish line spans the full road width, perpendicular to the road
+	# At x=OVAL_RX, z=0, the road runs in the Z direction (tangent to oval)
+	# So the line goes across X (perpendicular to road direction)
+	var center_x = OVAL_RX
+	var line_y = get_ground_height(center_x, 0) + 0.2
+	var line_width = ROAD_WIDTH + 2.0  # slightly wider than road
+	var checks = 12
 	var check_w = line_width / checks
 
 	for i in range(checks):
 		var checker = MeshInstance3D.new()
 		var box = BoxMesh.new()
-		box.size = Vector3(check_w * 0.95, 0.05, 2.0)
+		box.size = Vector3(check_w * 0.98, 0.05, 3.0)
 		checker.mesh = box
 		var mat = StandardMaterial3D.new()
-		mat.albedo_color = Color.WHITE if i % 2 == 0 else Color.BLACK
+		mat.albedo_color = Color.WHITE if i % 2 == 0 else Color(0.1, 0.1, 0.1)
 		checker.material_override = mat
-		checker.position = Vector3(
-			OVAL_RX - line_width / 2.0 + check_w * (i + 0.5), line_y, 0)
+		# Center the line on the road
+		var x_pos = center_x - line_width / 2.0 + check_w * (i + 0.5)
+		checker.position = Vector3(x_pos, line_y, 0)
 		world_node.add_child(checker)
 
 

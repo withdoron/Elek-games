@@ -72,18 +72,31 @@ func _physics_process(delta: float) -> void:
 	var s = Settings
 	var device = player_id
 
-	# --- SPINOUT OVERRIDE ---
+	# --- SPINOUT OVERRIDE (MK64 banana style) ---
 	if is_spinning_out:
 		spinout_timer -= delta
+		# Brake to recover faster (MK64 mechanic)
+		var brake_recover = false
+		if player_id == 0 and Input.is_action_pressed("brake"):
+			brake_recover = true
+		if Input.is_joy_button_pressed(device, JOY_BUTTON_X):
+			brake_recover = true
+		if Input.get_joy_axis(device, JOY_AXIS_TRIGGER_LEFT) > 0.3:
+			brake_recover = true
+		if brake_recover:
+			spinout_timer -= delta * 2.0  # recover 3x faster when braking
+
 		if spinout_timer <= 0:
 			is_spinning_out = false
 		else:
 			# Spin the truck and slow down
 			rotate_y(12.0 * delta)
 			speed = move_toward(speed, 0.0, 20.0 * delta)
-			# Still move forward (sliding)
 			var fwd = -transform.basis.z.normalized()
 			global_position += fwd * speed * delta
+			# Wall clamping during spinout
+			global_position.x = clamp(global_position.x, -198.0, 198.0)
+			global_position.z = clamp(global_position.z, -198.0, 198.0)
 			# Ground snap
 			global_position.y = _get_ground_height(global_position.x, global_position.z) + RIDE_HEIGHT
 			_update_visuals(delta, 0.0, false)
