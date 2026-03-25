@@ -1,6 +1,7 @@
 extends Control
 
 signal drive_pressed
+signal drive_2p_pressed
 
 var main_menu: VBoxContainer
 var settings_screen: Control
@@ -79,10 +80,15 @@ func _build_main_menu() -> void:
 	spacer.custom_minimum_size = Vector2(0, 30)
 	main_menu.add_child(spacer)
 
-	# DRIVE button
+	# DRIVE button (1 player)
 	var drive_btn := _make_button("DRIVE", ACCENT_GREEN)
 	drive_btn.pressed.connect(_on_drive)
 	main_menu.add_child(drive_btn)
+
+	# 2 PLAYER button
+	var drive_2p_btn := _make_button("2 PLAYER", Color(0.8, 0.5, 0.2))
+	drive_2p_btn.pressed.connect(_on_drive_2p)
+	main_menu.add_child(drive_2p_btn)
 
 	# SETTINGS button
 	var settings_btn := _make_button("SETTINGS", BUTTON_BORDER)
@@ -93,6 +99,11 @@ func _build_main_menu() -> void:
 func _on_drive() -> void:
 	visible = false
 	emit_signal("drive_pressed")
+
+
+func _on_drive_2p() -> void:
+	visible = false
+	emit_signal("drive_2p_pressed")
 
 
 # === SETTINGS SCREEN ===
