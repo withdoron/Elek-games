@@ -471,6 +471,8 @@ func _build_terrain_mesh() -> void:
 
 
 func _get_color(x: float, z: float, grass: Color, road: Color, mud: Color) -> Color:
+	var canyon_rock = Color(0.45, 0.35, 0.28)
+
 	# Check mud zones first
 	for mz in MUD_ZONES:
 		var dx = x - mz[0]
@@ -487,9 +489,24 @@ func _get_color(x: float, z: float, grass: Color, road: Color, mud: Color) -> Co
 	var rhw = ROAD_WIDTH / 2.0
 
 	if wd < rhw - 2.0:
+		# In canyon zone, road is darker
+		if z < -20.0 and z > -(OVAL_RZ + 60.0):
+			return road.darkened(0.15)
 		return road
 	elif wd < rhw + 2.0:
-		return road.lerp(grass, (wd - (rhw - 2.0)) / 4.0)
+		var base = grass
+		if z < -20.0 and z > -(OVAL_RZ + 60.0):
+			base = canyon_rock
+		return road.lerp(base, (wd - (rhw - 2.0)) / 4.0)
+
+	# Canyon walls get rocky color
+	if z < -20.0 and z > -(OVAL_RZ + 60.0):
+		var canyon_blend = clamp((abs(z) - 20.0) / (OVAL_RZ - 20.0), 0.0, 1.0)
+		canyon_blend = sin(canyon_blend * PI)
+		if canyon_blend > 0.1:
+			# Blend between grass and rock based on canyon depth
+			return grass.lerp(canyon_rock, clamp(canyon_blend * 1.5, 0.0, 1.0))
+
 	return grass
 
 
@@ -551,10 +568,12 @@ func _build_boulders() -> void:
 
 func get_ground_height(x: float, z: float) -> float:
 	var h = 0.0
+
 	# Center mountain
 	var md = sqrt(x * x + z * z)
 	if md < MOUNTAIN_RADIUS:
 		h += MOUNTAIN_HEIGHT * 0.5 * (1.0 + cos(PI * md / MOUNTAIN_RADIUS))
+
 	# Hills
 	for hill in HILLS:
 		var dx = x - hill[0]
@@ -562,6 +581,25 @@ func get_ground_height(x: float, z: float) -> float:
 		var dist = sqrt(dx * dx + dz * dz)
 		if dist < hill[3]:
 			h += hill[2] * 0.5 * (1.0 + cos(PI * dist / hill[3]))
+
+	# Canyon on the bottom half (z < 0) — must match player_kart.gd
+	if z < -20.0 and z > -(OVAL_RZ + 60.0):
+		var canyon_blend = clamp((abs(z) - 20.0) / (OVAL_RZ - 20.0), 0.0, 1.0)
+		canyon_blend = sin(canyon_blend * PI)
+		var canyon_depth = 30.0 * canyon_blend
+
+		var nx = x / OVAL_RX
+		var nz = z / OVAL_RZ
+		var ed = sqrt(nx * nx + nz * nz)
+		var dist_from_road = abs(ed - 1.0) * (OVAL_RX + OVAL_RZ) / 2.0
+
+		var road_zone = ROAD_WIDTH * 0.8
+		if dist_from_road < road_zone:
+			h -= canyon_depth
+		else:
+			var wall_blend = clamp((dist_from_road - road_zone) / 40.0, 0.0, 1.0)
+			h -= canyon_depth * (1.0 - wall_blend)
+
 	return h
 
 

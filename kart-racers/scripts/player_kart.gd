@@ -227,7 +227,7 @@ func _physics_process(delta: float) -> void:
 
 	var surface_max = s.max_speed
 	if in_mud:
-		surface_max *= 0.85  # mud: slight speed reduction, traction is the real penalty
+		surface_max *= 0.95  # mud: barely slower — traction is the penalty, not speed
 	elif not on_road:
 		surface_max *= 0.85  # grass: 15% reduction
 
@@ -239,7 +239,7 @@ func _physics_process(delta: float) -> void:
 	if throttle > 0.0 and speed >= 0.0:
 		var accel = s.acceleration
 		if in_mud:
-			accel *= 0.8  # slightly slower acceleration in mud
+			accel *= 0.95  # near-full acceleration in mud
 		speed = move_toward(speed, surface_max * throttle, accel * throttle * delta)
 	elif brake_input > 0.0:
 		if speed > 0.5:
@@ -419,10 +419,12 @@ func _align_to_terrain(delta: float) -> void:
 
 func _get_ground_height(x: float, z: float) -> float:
 	var h = 0.0
+
 	# Center mountain
 	var md = sqrt(x * x + z * z)
 	if md < MOUNTAIN_RADIUS:
 		h += MOUNTAIN_HEIGHT * 0.5 * (1.0 + cos(PI * md / MOUNTAIN_RADIUS))
+
 	# Hills
 	for hill in HILLS:
 		var dx = x - hill[0]
@@ -430,6 +432,33 @@ func _get_ground_height(x: float, z: float) -> float:
 		var dist = sqrt(dx * dx + dz * dz)
 		if dist < hill[3]:
 			h += hill[2] * 0.5 * (1.0 + cos(PI * dist / hill[3]))
+
+	# Canyon on the bottom half (z < 0)
+	# The canyon follows the oval road path in the z < 0 region
+	# Road center at this z: x = ±OVAL_RX * sqrt(1 - (z/OVAL_RZ)^2)
+	if z < -20.0 and z > -(OVAL_RZ + 60.0):
+		# How deep into the canyon zone (0 at z=-20, 1 at z=-OVAL_RZ)
+		var canyon_blend = clamp((abs(z) - 20.0) / (OVAL_RZ - 20.0), 0.0, 1.0)
+		# Smooth entry/exit with sine
+		canyon_blend = sin(canyon_blend * PI)
+		var canyon_depth = 30.0 * canyon_blend
+
+		# Distance from the oval road centerline
+		var nx = x / OVAL_RX
+		var nz = z / OVAL_RZ
+		var ed = sqrt(nx * nx + nz * nz)
+		var dist_from_road = abs(ed - 1.0) * (OVAL_RX + OVAL_RZ) / 2.0
+
+		# Canyon floor follows the road, walls rise on either side
+		var road_zone = ROAD_WIDTH * 0.8
+		if dist_from_road < road_zone:
+			# On/near road: drop to canyon floor
+			h -= canyon_depth
+		else:
+			# Canyon walls: transition from floor back to surface
+			var wall_blend = clamp((dist_from_road - road_zone) / 40.0, 0.0, 1.0)
+			h -= canyon_depth * (1.0 - wall_blend)
+
 	return h
 
 
