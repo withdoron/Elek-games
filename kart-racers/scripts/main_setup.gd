@@ -71,7 +71,7 @@ func _build_straight_road() -> void:
 	var road_width = 10.0
 	var road_start_z = 80.0
 	var road_end_z = -130.0
-	var segments = 200
+	var segments = 300
 	var road_mat = StandardMaterial3D.new()
 	road_mat.albedo_color = Color(0.45, 0.35, 0.22)
 
@@ -89,13 +89,13 @@ func _build_straight_road() -> void:
 
 		var slope_angle = atan2(h_front - h_back, seg_length)
 
-		# Deep slab — 2x Z overlap so steep slopes have no gaps
+		# 10-deep slab, 3x Z overlap, raised 0.5 above green
 		var segment = MeshInstance3D.new()
 		var box = BoxMesh.new()
-		box.size = Vector3(road_width, 6.0, seg_length * 2.0)
+		box.size = Vector3(road_width, 10.0, seg_length * 3.0)
 		segment.mesh = box
 		segment.material_override = road_mat
-		segment.position = Vector3(0, h_mid - 2.85, z_mid)
+		segment.position = Vector3(0, h_mid - 4.5, z_mid)
 		segment.rotation.x = slope_angle
 		add_child(segment)
 
@@ -105,8 +105,8 @@ func _build_hill_terrain() -> void:
 	var hill_mat = StandardMaterial3D.new()
 	hill_mat.albedo_color = Color(0.3, 0.6, 0.25)
 
-	var full_width = 200.0  # wide enough to blend with flat grass
-	var z_steps = 100
+	var full_width = 200.0
+	var z_steps = 150
 	var z_start = HILL_CENTER_Z - HILL_HALF_WIDTH
 	var z_end = HILL_CENTER_Z + HILL_HALF_WIDTH
 	var z_step_size = (z_end - z_start) / z_steps
@@ -125,13 +125,13 @@ func _build_hill_terrain() -> void:
 
 		var slope = atan2(h_front - h_back, z_step_size)
 
-		# One full-width strip — no road gap, road draws on top
+		# 10-deep slab, 3x Z overlap — road draws on top of this
 		var strip = MeshInstance3D.new()
 		var box = BoxMesh.new()
-		box.size = Vector3(full_width, 6.0, z_step_size * 2.0)
+		box.size = Vector3(full_width, 10.0, z_step_size * 3.0)
 		strip.mesh = box
 		strip.material_override = hill_mat
-		strip.position = Vector3(0, h_mid - 2.9, z_mid)
+		strip.position = Vector3(0, h_mid - 5.0, z_mid)
 		strip.rotation.x = slope
 		add_child(strip)
 
