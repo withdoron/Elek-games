@@ -17,10 +17,10 @@ const HILLS = [
 ]
 
 # Oval road parameters
-const OVAL_RX = 120.0  # X radius
-const OVAL_RZ = 80.0   # Z radius
+const OVAL_RX = 120.0
+const OVAL_RZ = 80.0
 const ROAD_WIDTH = 24.0
-const ROAD_SEGMENTS = 300
+const ROAD_SEGMENTS = 400
 
 
 func _ready() -> void:
@@ -62,7 +62,7 @@ func _build_world() -> void:
 	sun.shadow_enabled = true
 	add_child(sun)
 
-	# --- Terrain mesh ---
+	# --- Terrain mesh (high-res, smooth normals) ---
 	_build_terrain_mesh()
 
 	# --- Oval road mesh ---
@@ -81,7 +81,8 @@ func _build_terrain_mesh() -> void:
 	st.set_material(mat)
 
 	var extent = ARENA_SIZE + 10.0
-	var steps = 100
+	# 200x200 grid = ~2.1m per cell — smooth enough to match the math function
+	var steps = 200
 	var step_size = (extent * 2.0) / steps
 
 	for zi in range(steps):
@@ -96,15 +97,19 @@ func _build_terrain_mesh() -> void:
 			var v01 = Vector3(x0, get_ground_height(x0, z1), z1)
 			var v11 = Vector3(x1, get_ground_height(x1, z1), z1)
 
-			st.set_normal(_calc_normal(v00, v10, v01))
+			# Tri 1
 			st.add_vertex(v00)
 			st.add_vertex(v10)
 			st.add_vertex(v01)
 
-			st.set_normal(_calc_normal(v10, v11, v01))
+			# Tri 2
 			st.add_vertex(v10)
 			st.add_vertex(v11)
 			st.add_vertex(v01)
+
+	# Generate smooth normals and deduplicate vertices
+	st.generate_normals()
+	st.index()
 
 	var mesh_inst = MeshInstance3D.new()
 	mesh_inst.mesh = st.commit()
@@ -121,23 +126,22 @@ func _build_oval_road() -> void:
 	st.set_material(mat)
 
 	var road_half_w = ROAD_WIDTH / 2.0
-	var road_lift = 0.15
+	# Road sits clearly above terrain — 0.3 prevents any grass bleed
+	var road_lift = 0.3
 
 	for i in range(ROAD_SEGMENTS):
 		var t0 = (float(i) / ROAD_SEGMENTS) * TAU
 		var t1 = (float(i + 1) / ROAD_SEGMENTS) * TAU
 
-		# Center points on the oval
 		var cx0 = cos(t0) * OVAL_RX
 		var cz0 = sin(t0) * OVAL_RZ
 		var cx1 = cos(t1) * OVAL_RX
 		var cz1 = sin(t1) * OVAL_RZ
 
-		# Tangent direction at each point (derivative of ellipse)
+		# Normal perpendicular to tangent
 		var tx0 = -sin(t0) * OVAL_RX
 		var tz0 = cos(t0) * OVAL_RZ
 		var len0 = sqrt(tx0 * tx0 + tz0 * tz0)
-		# Normal (perpendicular to tangent, pointing outward)
 		var nx0 = tz0 / len0
 		var nz0 = -tx0 / len0
 
@@ -147,7 +151,6 @@ func _build_oval_road() -> void:
 		var nx1 = tz1 / len1
 		var nz1 = -tx1 / len1
 
-		# Inner and outer edge points
 		var lx0 = cx0 - nx0 * road_half_w
 		var lz0 = cz0 - nz0 * road_half_w
 		var rx0 = cx0 + nx0 * road_half_w
@@ -158,6 +161,7 @@ func _build_oval_road() -> void:
 		var rx1 = cx1 + nx1 * road_half_w
 		var rz1 = cz1 + nz1 * road_half_w
 
+		# Sample height at each road edge point
 		var y_l0 = get_ground_height(lx0, lz0) + road_lift
 		var y_r0 = get_ground_height(rx0, rz0) + road_lift
 		var y_l1 = get_ground_height(lx1, lz1) + road_lift
@@ -168,15 +172,16 @@ func _build_oval_road() -> void:
 		var v_l1 = Vector3(lx1, y_l1, lz1)
 		var v_r1 = Vector3(rx1, y_r1, rz1)
 
-		st.set_normal(_calc_normal(v_l0, v_r0, v_l1))
 		st.add_vertex(v_l0)
 		st.add_vertex(v_r0)
 		st.add_vertex(v_l1)
 
-		st.set_normal(_calc_normal(v_r0, v_r1, v_l1))
 		st.add_vertex(v_r0)
 		st.add_vertex(v_r1)
 		st.add_vertex(v_l1)
+
+	st.generate_normals()
+	st.index()
 
 	var mesh_inst = MeshInstance3D.new()
 	mesh_inst.mesh = st.commit()
@@ -193,12 +198,11 @@ func _build_walls() -> void:
 	var wall_thickness = 3.0
 	var s = ARENA_SIZE
 
-	# [position, size]
 	var walls = [
-		[Vector3(0, wall_height / 2.0, -s), Vector3(s * 2.0 + wall_thickness * 2, wall_height, wall_thickness)],  # North
-		[Vector3(0, wall_height / 2.0, s), Vector3(s * 2.0 + wall_thickness * 2, wall_height, wall_thickness)],   # South
-		[Vector3(-s, wall_height / 2.0, 0), Vector3(wall_thickness, wall_height, s * 2.0)],  # West
-		[Vector3(s, wall_height / 2.0, 0), Vector3(wall_thickness, wall_height, s * 2.0)],   # East
+		[Vector3(0, wall_height / 2.0, -s), Vector3(s * 2.0 + wall_thickness * 2, wall_height, wall_thickness)],
+		[Vector3(0, wall_height / 2.0, s), Vector3(s * 2.0 + wall_thickness * 2, wall_height, wall_thickness)],
+		[Vector3(-s, wall_height / 2.0, 0), Vector3(wall_thickness, wall_height, s * 2.0)],
+		[Vector3(s, wall_height / 2.0, 0), Vector3(wall_thickness, wall_height, s * 2.0)],
 	]
 
 	for w in walls:
@@ -209,10 +213,6 @@ func _build_walls() -> void:
 		wall.material_override = wall_mat
 		wall.position = w[0]
 		add_child(wall)
-
-
-func _calc_normal(a: Vector3, b: Vector3, c: Vector3) -> Vector3:
-	return (b - a).cross(c - a).normalized()
 
 
 func get_ground_height(x: float, z: float) -> float:
@@ -230,12 +230,10 @@ func _spawn_kart() -> void:
 	kart = Node3D.new()
 	kart.set_script(preload("res://scripts/player_kart.gd"))
 	kart.name = "PlayerKart"
-	# Start on the oval road, right side, facing forward (-Z along track)
 	var start_x = OVAL_RX
 	var start_z = 0.0
 	var start_y = get_ground_height(start_x, start_z)
 	kart.position = Vector3(start_x, start_y, start_z)
-	# Face along the track (tangent at right side of oval points -Z)
 	kart.rotation.y = PI
 	add_child(kart)
 

@@ -191,11 +191,11 @@ func _setup_dirt_particles() -> void:
 		particles.scale_amount_min = 0.15
 		particles.scale_amount_max = 0.4
 
-		# Color: brown dirt fading out
-		particles.color = Color(0.45, 0.35, 0.2, 0.8)
+		# Color: matches terrain green, fading out
+		particles.color = Color(0.3, 0.5, 0.2, 0.8)
 		var color_ramp = Gradient.new()
-		color_ramp.set_color(0, Color(0.5, 0.4, 0.25, 0.9))
-		color_ramp.set_color(1, Color(0.4, 0.3, 0.2, 0.0))
+		color_ramp.set_color(0, Color(0.3, 0.55, 0.2, 0.9))
+		color_ramp.set_color(1, Color(0.25, 0.45, 0.18, 0.0))
 		particles.color_ramp = color_ramp
 
 		# Mesh for each particle — small sphere
