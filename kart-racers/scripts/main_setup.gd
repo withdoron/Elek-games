@@ -8,22 +8,20 @@ var menu_ui: Control
 const ARENA_SIZE = 200.0
 
 # Hill definitions: [center_x, center_z, height, radius]
-# Hills are ON the road — the road rises over them
 const HILLS = [
-	[0.0, -50.0, 12.0, 30.0],     # big hill on far side
-	[80.0, 40.0, 8.0, 25.0],      # hill on right curve
-	[-70.0, -30.0, 6.0, 20.0],    # hill on left side
-	[40.0, -100.0, 10.0, 22.0],   # hill near bottom
-	[-50.0, 70.0, 5.0, 18.0],     # gentle hill on top curve
-	[160.0, 0.0, 9.0, 25.0],      # hill outside oval
-	[-160.0, -40.0, 7.0, 20.0],   # hill outside oval
+	[0.0, -50.0, 12.0, 30.0],
+	[80.0, 40.0, 8.0, 25.0],
+	[-70.0, -30.0, 6.0, 20.0],
+	[40.0, -100.0, 10.0, 22.0],
+	[-50.0, 70.0, 5.0, 18.0],
+	[160.0, 0.0, 9.0, 25.0],
+	[-160.0, -40.0, 7.0, 20.0],
 ]
 
 # Oval road parameters
 const OVAL_RX = 120.0
 const OVAL_RZ = 80.0
 const ROAD_WIDTH = 24.0
-const ROAD_SEGMENTS = 400
 
 
 func _ready() -> void:
@@ -65,26 +63,26 @@ func _build_world() -> void:
 	sun.shadow_enabled = true
 	add_child(sun)
 
-	# --- Terrain mesh (high-res, smooth normals) ---
+	# --- Single unified terrain mesh with vertex colors ---
 	_build_terrain_mesh()
-
-	# --- Oval road mesh ---
-	_build_oval_road()
 
 	# --- Arena walls ---
 	_build_walls()
 
 
 func _build_terrain_mesh() -> void:
+	# One mesh for everything — vertex colors distinguish road from grass
 	var st = SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 
 	var mat = StandardMaterial3D.new()
-	mat.albedo_color = Color(0.25, 0.55, 0.2)
+	mat.vertex_color_use_as_albedo = true
 	st.set_material(mat)
 
+	var grass_color = Color(0.25, 0.55, 0.2)
+	var road_color = Color(0.45, 0.35, 0.22)
+
 	var extent = ARENA_SIZE + 10.0
-	# 200x200 grid = ~2.1m per cell — smooth enough to match the math function
 	var steps = 200
 	var step_size = (extent * 2.0) / steps
 
@@ -100,17 +98,27 @@ func _build_terrain_mesh() -> void:
 			var v01 = Vector3(x0, get_ground_height(x0, z1), z1)
 			var v11 = Vector3(x1, get_ground_height(x1, z1), z1)
 
+			var c00 = _get_surface_color(x0, z0, grass_color, road_color)
+			var c10 = _get_surface_color(x1, z0, grass_color, road_color)
+			var c01 = _get_surface_color(x0, z1, grass_color, road_color)
+			var c11 = _get_surface_color(x1, z1, grass_color, road_color)
+
 			# Tri 1
+			st.set_color(c00)
 			st.add_vertex(v00)
+			st.set_color(c10)
 			st.add_vertex(v10)
+			st.set_color(c01)
 			st.add_vertex(v01)
 
 			# Tri 2
+			st.set_color(c10)
 			st.add_vertex(v10)
+			st.set_color(c11)
 			st.add_vertex(v11)
+			st.set_color(c01)
 			st.add_vertex(v01)
 
-	# Generate smooth normals and deduplicate vertices
 	st.generate_normals()
 	st.index()
 
@@ -120,82 +128,33 @@ func _build_terrain_mesh() -> void:
 	add_child(mesh_inst)
 
 
-func _build_oval_road() -> void:
-	var st = SurfaceTool.new()
-	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+func _get_surface_color(x: float, z: float, grass: Color, road: Color) -> Color:
+	# How far is this point from the oval road centerline?
+	# Ellipse: (x/RX)^2 + (z/RZ)^2 = 1
+	# Normalized distance from ellipse: < 1 inside, > 1 outside, = 1 on it
+	var nx = x / OVAL_RX
+	var nz = z / OVAL_RZ
+	var ellipse_dist = sqrt(nx * nx + nz * nz)
 
-	var mat = StandardMaterial3D.new()
-	mat.albedo_color = Color(0.45, 0.35, 0.22)
-	st.set_material(mat)
+	# Distance from the ellipse curve (in normalized space)
+	var dist_from_curve = abs(ellipse_dist - 1.0)
+
+	# Convert to world-space approximate distance
+	# The gradient of the ellipse at a point gives the direction to the nearest curve point
+	# Approximate: multiply by average radius
+	var avg_radius = (OVAL_RX + OVAL_RZ) / 2.0
+	var world_dist = dist_from_curve * avg_radius
 
 	var road_half_w = ROAD_WIDTH / 2.0
-	# Road sits clearly above terrain — 0.5 prevents grass bleed on steep slopes
-	var road_lift = 0.5
 
-	for i in range(ROAD_SEGMENTS):
-		var t0 = (float(i) / ROAD_SEGMENTS) * TAU
-		var t1 = (float(i + 1) / ROAD_SEGMENTS) * TAU
-
-		var cx0 = cos(t0) * OVAL_RX
-		var cz0 = sin(t0) * OVAL_RZ
-		var cx1 = cos(t1) * OVAL_RX
-		var cz1 = sin(t1) * OVAL_RZ
-
-		# Normal perpendicular to tangent
-		var tx0 = -sin(t0) * OVAL_RX
-		var tz0 = cos(t0) * OVAL_RZ
-		var len0 = sqrt(tx0 * tx0 + tz0 * tz0)
-		var nx0 = tz0 / len0
-		var nz0 = -tx0 / len0
-
-		var tx1 = -sin(t1) * OVAL_RX
-		var tz1 = cos(t1) * OVAL_RZ
-		var len1 = sqrt(tx1 * tx1 + tz1 * tz1)
-		var nx1 = tz1 / len1
-		var nz1 = -tx1 / len1
-
-		var lx0 = cx0 - nx0 * road_half_w
-		var lz0 = cz0 - nz0 * road_half_w
-		var rx0 = cx0 + nx0 * road_half_w
-		var rz0 = cz0 + nz0 * road_half_w
-
-		var lx1 = cx1 - nx1 * road_half_w
-		var lz1 = cz1 - nz1 * road_half_w
-		var rx1 = cx1 + nx1 * road_half_w
-		var rz1 = cz1 + nz1 * road_half_w
-
-		# Sample height at center, left, and right — use MAX so road always
-		# clears the terrain even when a hill peak is under the road
-		var hc0 = get_ground_height(cx0, cz0)
-		var hl0 = get_ground_height(lx0, lz0)
-		var hr0 = get_ground_height(rx0, rz0)
-		var h0 = max(hc0, max(hl0, hr0)) + road_lift
-
-		var hc1 = get_ground_height(cx1, cz1)
-		var hl1 = get_ground_height(lx1, lz1)
-		var hr1 = get_ground_height(rx1, rz1)
-		var h1 = max(hc1, max(hl1, hr1)) + road_lift
-
-		var v_l0 = Vector3(lx0, h0, lz0)
-		var v_r0 = Vector3(rx0, h0, rz0)
-		var v_l1 = Vector3(lx1, h1, lz1)
-		var v_r1 = Vector3(rx1, h1, rz1)
-
-		st.add_vertex(v_l0)
-		st.add_vertex(v_r0)
-		st.add_vertex(v_l1)
-
-		st.add_vertex(v_r0)
-		st.add_vertex(v_r1)
-		st.add_vertex(v_l1)
-
-	st.generate_normals()
-	st.index()
-
-	var mesh_inst = MeshInstance3D.new()
-	mesh_inst.mesh = st.commit()
-	mesh_inst.name = "Road"
-	add_child(mesh_inst)
+	if world_dist < road_half_w - 1.5:
+		return road
+	elif world_dist < road_half_w + 1.5:
+		# Smooth blend at road edges
+		var t = (world_dist - (road_half_w - 1.5)) / 3.0
+		return road.lerp(grass, t)
+	else:
+		return grass
 
 
 func _build_walls() -> void:
@@ -241,7 +200,7 @@ func _spawn_kart() -> void:
 	kart.name = "PlayerKart"
 	var start_x = OVAL_RX
 	var start_z = 0.0
-	var start_y = get_ground_height(start_x, start_z)
+	var start_y = get_ground_height(start_x, start_z) + 0.3
 	kart.position = Vector3(start_x, start_y, start_z)
 	kart.rotation.y = PI
 	add_child(kart)
