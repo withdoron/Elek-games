@@ -105,17 +105,14 @@ func _physics_process(delta: float) -> void:
 	_update_visuals(delta, steer_input)
 
 
-func _get_ground_height(x: float, z: float) -> float:
-	var h = 0.0
-	h += sin(x * 0.02) * 1.5
-	h += sin(z * 0.03) * 1.0
-	h += sin(x * 0.05 + z * 0.04) * 0.5
-	return h
+func _get_ground_height(_x: float, _z: float) -> float:
+	# Flat ground matching the visual grass plane at y=0
+	return 0.0
 
 
 func _update_visuals(delta: float, steer_input: float) -> void:
 	# --- Front wheel steering ---
-	var visual_steer = steer_input * 0.5
+	var visual_steer = -steer_input * 0.5
 	for pivot in front_pivots:
 		if pivot:
 			pivot.rotation.y = lerp(pivot.rotation.y, visual_steer, delta * 10.0)
