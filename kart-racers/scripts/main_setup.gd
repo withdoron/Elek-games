@@ -135,7 +135,7 @@ func _spawn_kart() -> void:
 	# Start on the right side of the figure-8
 	var start_x = 18.0
 	var start_z = 0.0
-	var start_y = _get_ground_height(start_x, start_z) + 0.8
+	var start_y = _get_ground_height(start_x, start_z)
 	kart.position = Vector3(start_x, start_y, start_z)
 	add_child(kart)
 

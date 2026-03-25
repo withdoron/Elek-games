@@ -5,8 +5,8 @@ var steer_angle: float = 0.0
 var kart_tilt: float = 0.0
 var move_velocity: Vector3 = Vector3.ZERO  # manual velocity tracking for drift
 
-# Ground clearance — bottom of big wheels
-const GROUND_OFFSET = 0.8
+# Truck origin offset above ground (wheels already at correct height in model)
+const GROUND_OFFSET = 0.0
 
 # Node references
 var body_mesh: Node3D
