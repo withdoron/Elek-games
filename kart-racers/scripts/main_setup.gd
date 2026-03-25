@@ -8,17 +8,15 @@ var menu_ui: Control
 const ARENA_SIZE = 200.0
 
 # Hill definitions: [center_x, center_z, height, radius]
-# Hills placed safely INSIDE or OUTSIDE the oval road — never ON it
+# Hills are ON the road — the road rises over them
 const HILLS = [
-	# Inside the oval (center area)
-	[0.0, 0.0, 10.0, 25.0],       # big center hill
-	[-30.0, -25.0, 7.0, 18.0],    # left of center
-	[25.0, 20.0, 5.0, 15.0],      # right of center
-	# Outside the oval (beyond the road)
-	[160.0, 0.0, 12.0, 28.0],     # far right
-	[-160.0, -40.0, 8.0, 22.0],   # far left
-	[0.0, 140.0, 6.0, 20.0],      # far south
-	[0.0, -140.0, 9.0, 24.0],     # far north
+	[0.0, -50.0, 12.0, 30.0],     # big hill on far side
+	[80.0, 40.0, 8.0, 25.0],      # hill on right curve
+	[-70.0, -30.0, 6.0, 20.0],    # hill on left side
+	[40.0, -100.0, 10.0, 22.0],   # hill near bottom
+	[-50.0, 70.0, 5.0, 18.0],     # gentle hill on top curve
+	[160.0, 0.0, 9.0, 25.0],      # hill outside oval
+	[-160.0, -40.0, 7.0, 20.0],   # hill outside oval
 ]
 
 # Oval road parameters
@@ -166,16 +164,22 @@ func _build_oval_road() -> void:
 		var rx1 = cx1 + nx1 * road_half_w
 		var rz1 = cz1 + nz1 * road_half_w
 
-		# Sample height at each road edge point
-		var y_l0 = get_ground_height(lx0, lz0) + road_lift
-		var y_r0 = get_ground_height(rx0, rz0) + road_lift
-		var y_l1 = get_ground_height(lx1, lz1) + road_lift
-		var y_r1 = get_ground_height(rx1, rz1) + road_lift
+		# Sample height at center, left, and right — use MAX so road always
+		# clears the terrain even when a hill peak is under the road
+		var hc0 = get_ground_height(cx0, cz0)
+		var hl0 = get_ground_height(lx0, lz0)
+		var hr0 = get_ground_height(rx0, rz0)
+		var h0 = max(hc0, max(hl0, hr0)) + road_lift
 
-		var v_l0 = Vector3(lx0, y_l0, lz0)
-		var v_r0 = Vector3(rx0, y_r0, rz0)
-		var v_l1 = Vector3(lx1, y_l1, lz1)
-		var v_r1 = Vector3(rx1, y_r1, rz1)
+		var hc1 = get_ground_height(cx1, cz1)
+		var hl1 = get_ground_height(lx1, lz1)
+		var hr1 = get_ground_height(rx1, rz1)
+		var h1 = max(hc1, max(hl1, hr1)) + road_lift
+
+		var v_l0 = Vector3(lx0, h0, lz0)
+		var v_r0 = Vector3(rx0, h0, rz0)
+		var v_l1 = Vector3(lx1, h1, lz1)
+		var v_r1 = Vector3(rx1, h1, rz1)
 
 		st.add_vertex(v_l0)
 		st.add_vertex(v_r0)
