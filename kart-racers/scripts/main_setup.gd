@@ -2,9 +2,11 @@ extends Node3D
 
 var karts: Array = []
 var speedometers: Array = []
+var lap_labels: Array = []
 var menu_ui: Control
 var player_count: int = 1
 var split_containers: Array = []
+var hud_nodes: Array = []  # cleanup references
 
 const ARENA_SIZE = 200.0
 
@@ -43,6 +45,8 @@ func _process(_delta: float) -> void:
 		if karts[i] and i < speedometers.size() and speedometers[i]:
 			var spd = abs(karts[i].speed)
 			speedometers[i].text = "%d km/h" % int(spd * 3.6)
+		if karts[i] and i < lap_labels.size() and lap_labels[i]:
+			lap_labels[i].text = "Lap %d" % karts[i].lap_count
 
 
 func _build_world() -> void:
@@ -76,23 +80,33 @@ func _build_world() -> void:
 	# Walls
 	_build_walls()
 
+	# Start/Finish line on the oval road (right side, z=0)
+	_build_start_finish_line()
+
 
 func _start_game(num_players: int) -> void:
 	player_count = num_players
 
-	# Clean up any existing karts and viewports
+	# Clean up any existing karts, viewports, HUD
 	for k in karts:
 		if k and k.get_parent():
 			k.get_parent().remove_child(k)
 			k.queue_free()
 	karts.clear()
 	speedometers.clear()
+	lap_labels.clear()
 
 	for sc in split_containers:
 		if sc and sc.get_parent():
 			sc.get_parent().remove_child(sc)
 			sc.queue_free()
 	split_containers.clear()
+
+	for h in hud_nodes:
+		if h and h.get_parent():
+			h.get_parent().remove_child(h)
+			h.queue_free()
+	hud_nodes.clear()
 
 	if player_count == 1:
 		_start_single_player()
@@ -105,49 +119,60 @@ func _start_game(num_players: int) -> void:
 
 func _start_single_player() -> void:
 	var kart = _create_kart(0, Color(0.2, 0.35, 0.8))
-	kart.position = Vector3(OVAL_RX, get_ground_height(OVAL_RX, 0) + 0.5, 0)
+	kart.position = Vector3(OVAL_RX, get_ground_height(OVAL_RX, 0) + 0.5, -5)
 	kart.rotation.y = PI
 	world_node.add_child(kart)
 	kart.camera.current = true
 	karts.append(kart)
+	kart.connect("lap_completed", _on_lap_completed)
 
 	# HUD
 	var canvas = CanvasLayer.new()
 	canvas.name = "HUD_P1"
 	add_child(canvas)
+	hud_nodes.append(canvas)
+
 	var speedo = _make_speedometer(Vector2(20, 660))
 	canvas.add_child(speedo)
 	speedometers.append(speedo)
 
+	var lap_label = _make_lap_label(Vector2(20, 20))
+	canvas.add_child(lap_label)
+	lap_labels.append(lap_label)
+
 
 func _start_split_screen() -> void:
-	# Top/bottom split using SubViewportContainers
+	# Top/bottom split — full 1280x720 window, each half 1280x360
+	var screen_w = 1280
+	var half_h = 360
+
 	var canvas = CanvasLayer.new()
 	canvas.name = "SplitScreenLayer"
 	canvas.layer = 0
 	add_child(canvas)
+	hud_nodes.append(canvas)
 
 	var colors = [Color(0.2, 0.35, 0.8), Color(0.8, 0.2, 0.2)]
 	var start_positions = [
-		Vector3(OVAL_RX, get_ground_height(OVAL_RX, 0) + 0.5, 0),
-		Vector3(-OVAL_RX, get_ground_height(-OVAL_RX, 0) + 0.5, 0),
+		Vector3(OVAL_RX, get_ground_height(OVAL_RX, 0) + 0.5, -5),
+		Vector3(OVAL_RX, get_ground_height(OVAL_RX, 0) + 0.5, 5),
 	]
-	var start_rotations = [PI, 0.0]
+	var start_rotations = [PI, PI]  # both face same direction on the road
 
 	for i in range(2):
-		# Create kart in the world
 		var kart = _create_kart(i, colors[i])
 		kart.position = start_positions[i]
 		kart.rotation.y = start_rotations[i]
 		world_node.add_child(kart)
-		kart.camera.current = false  # viewports handle cameras
+		kart.camera.current = false
 		karts.append(kart)
+		kart.connect("lap_completed", _on_lap_completed)
 
-		# SubViewportContainer
+		# SubViewportContainer — fills half the screen
 		var container = SubViewportContainer.new()
 		container.name = "ViewportContainer_P%d" % (i + 1)
-		container.position = Vector2(0, i * 360)
-		container.size = Vector2(1280, 360)
+		container.position = Vector2(0, i * half_h)
+		container.size = Vector2(screen_w, half_h)
 		container.stretch = true
 		canvas.add_child(container)
 		split_containers.append(container)
@@ -155,26 +180,46 @@ func _start_split_screen() -> void:
 		# SubViewport
 		var viewport = SubViewport.new()
 		viewport.name = "Viewport_P%d" % (i + 1)
-		viewport.size = Vector2i(1280, 360)
+		viewport.size = Vector2i(screen_w, half_h)
 		viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
-		viewport.world_3d = get_viewport().world_3d  # share the world
+		viewport.world_3d = get_viewport().world_3d
 		container.add_child(viewport)
 
-		# Camera inside the viewport that follows the kart
+		# Camera
 		var cam = Camera3D.new()
 		cam.name = "ViewportCam_P%d" % (i + 1)
 		cam.current = true
 		viewport.add_child(cam)
 
-		# Speedometer overlay per viewport
-		var speedo_label = _make_speedometer(Vector2(10, 310))
-		viewport.add_child(speedo_label)
-		# Actually speedometer needs to be in a CanvasLayer inside the viewport
-		# Let's use a simple label positioned in screen space
-		speedometers.append(speedo_label)
+	# HUD overlay on top of split screen
+	var hud_canvas = CanvasLayer.new()
+	hud_canvas.name = "SplitHUD"
+	hud_canvas.layer = 5
+	add_child(hud_canvas)
+	hud_nodes.append(hud_canvas)
 
-	# Start a process to update viewport cameras to follow karts
-	set_process(true)
+	# P1 speedo + lap (top half)
+	var speedo1 = _make_speedometer(Vector2(20, 320))
+	hud_canvas.add_child(speedo1)
+	speedometers.append(speedo1)
+	var lap1 = _make_lap_label(Vector2(20, 10))
+	hud_canvas.add_child(lap1)
+	lap_labels.append(lap1)
+
+	# P2 speedo + lap (bottom half)
+	var speedo2 = _make_speedometer(Vector2(20, 680))
+	hud_canvas.add_child(speedo2)
+	speedometers.append(speedo2)
+	var lap2 = _make_lap_label(Vector2(20, 370))
+	hud_canvas.add_child(lap2)
+	lap_labels.append(lap2)
+
+	# Divider line
+	var divider = ColorRect.new()
+	divider.color = Color(0.2, 0.2, 0.2)
+	divider.position = Vector2(0, half_h - 1)
+	divider.size = Vector2(screen_w, 2)
+	hud_canvas.add_child(divider)
 
 
 func _physics_process(_delta: float) -> void:
@@ -311,6 +356,48 @@ func get_ground_height(x: float, z: float) -> float:
 		if dist < hill[3]:
 			h += hill[2] * 0.5 * (1.0 + cos(PI * dist / hill[3]))
 	return h
+
+
+func _build_start_finish_line() -> void:
+	# Checkered line across the road at the start position (right side of oval, z=0)
+	var line_y = get_ground_height(OVAL_RX, 0) + 0.1
+	var line_width = ROAD_WIDTH + 4.0
+	var line_depth = 2.0
+	var checks = 8
+
+	var check_w = line_width / checks
+	for i in range(checks):
+		var checker = MeshInstance3D.new()
+		var box = BoxMesh.new()
+		box.size = Vector3(check_w * 0.95, 0.05, line_depth)
+		checker.mesh = box
+		var mat = StandardMaterial3D.new()
+		mat.albedo_color = Color.WHITE if i % 2 == 0 else Color.BLACK
+		checker.material_override = mat
+		checker.position = Vector3(
+			OVAL_RX - line_width / 2.0 + check_w * (i + 0.5),
+			line_y,
+			0
+		)
+		world_node.add_child(checker)
+
+
+func _on_lap_completed(pid: int, lap: int) -> void:
+	if pid < lap_labels.size():
+		lap_labels[pid].text = "Lap %d" % lap
+
+
+func _make_lap_label(pos: Vector2) -> Label:
+	var label = Label.new()
+	label.name = "LapLabel"
+	label.text = "Lap 0"
+	label.add_theme_font_size_override("font_size", 28)
+	label.add_theme_color_override("font_color", Color(1.0, 0.85, 0.3))
+	label.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.7))
+	label.add_theme_constant_override("shadow_offset_x", 2)
+	label.add_theme_constant_override("shadow_offset_y", 2)
+	label.position = pos
+	return label
 
 
 func _make_speedometer(pos: Vector2) -> Label:

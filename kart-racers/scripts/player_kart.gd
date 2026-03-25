@@ -7,6 +7,15 @@ var move_velocity: Vector3 = Vector3.ZERO
 var vertical_velocity: float = 0.0
 var on_ground: bool = true
 
+# Powerslide state
+var is_powersliding: bool = false
+var powerslide_direction: float = 0.0  # -1 left, +1 right
+
+# Lap tracking
+var lap_count: int = 0
+var last_half: int = 0  # 0 = right side (x>0), 1 = left side (x<0)
+signal lap_completed(player_id: int, lap: int)
+
 # Set by main_setup when spawning
 var player_id: int = 0
 var truck_color: Color = Color(0.2, 0.35, 0.8)
@@ -85,6 +94,26 @@ func _physics_process(delta: float) -> void:
 	if Input.is_joy_button_pressed(device, JOY_BUTTON_X):
 		brake_input = max(brake_input, 1.0)
 
+	# Bumpers: jump + powerslide
+	var bumper_pressed = Input.is_joy_button_pressed(device, JOY_BUTTON_LEFT_SHOULDER) or Input.is_joy_button_pressed(device, JOY_BUTTON_RIGHT_SHOULDER)
+	# Keyboard: Space for P1
+	if player_id == 0 and Input.is_key_pressed(KEY_SPACE):
+		bumper_pressed = true
+
+	if bumper_pressed and on_ground and not is_powersliding:
+		# Start powerslide — small jump + begin sliding
+		vertical_velocity = 5.0
+		on_ground = false
+		is_powersliding = true
+		powerslide_direction = sign(steer_input) if abs(steer_input) > 0.1 else 0.0
+	elif bumper_pressed and is_powersliding:
+		# Continue powersliding — maintain slide
+		pass
+	elif not bumper_pressed and is_powersliding:
+		# Release — end powerslide
+		is_powersliding = false
+		powerslide_direction = 0.0
+
 	# --- Surface detection ---
 	var on_road = _is_on_road(global_position.x, global_position.z)
 	var surface_max_speed = s.max_speed if on_road else s.max_speed * 0.85
@@ -131,11 +160,26 @@ func _physics_process(delta: float) -> void:
 	# --- Apply rotation ---
 	rotate_y(-steer_angle * delta)
 
-	# --- Drift ---
+	# --- Drift / Sliding ---
 	var forward_dir = -transform.basis.z.normalized()
 	var forward_vel = forward_dir * speed
 	var lateral = move_velocity - forward_dir * move_velocity.dot(forward_dir)
-	move_velocity = forward_vel + lateral * s.drift_factor
+
+	# Speed-dependent sliding: faster = more slide on turns
+	var base_grip = s.drift_factor  # 0.92 default
+	if is_powersliding:
+		# Powerslide: much more slidey, extra turn boost
+		var slide_grip = 0.97  # high lateral persistence = big slide
+		move_velocity = forward_vel + lateral * slide_grip
+		# Extra rotation during powerslide
+		var ps_turn = (steer_input if abs(steer_input) > 0.1 else powerslide_direction) * 3.0
+		rotate_y(-ps_turn * delta)
+	else:
+		# Normal: grip decreases at high speed (more sliding in fast corners)
+		var speed_slide = clamp(abs(speed) / max(s.max_speed, 1.0), 0.0, 1.0)
+		var effective_grip = lerp(base_grip * 0.5, base_grip, 1.0 - speed_slide * 0.4)
+		move_velocity = forward_vel + lateral * effective_grip
+
 	move_velocity.y = 0
 
 	# --- Horizontal movement ---
@@ -175,6 +219,18 @@ func _physics_process(delta: float) -> void:
 			on_ground = false
 	else:
 		on_ground = false
+
+	# --- Lap tracking ---
+	# Track which half of the oval the truck is in (x>0 = right, x<0 = left)
+	# A lap = crossing from right to left (through z<0) then back to right (through z>0)
+	var current_half = 0 if global_position.x > 0 else 1
+	if current_half != last_half:
+		# Crossed from one half to the other
+		if last_half == 1 and current_half == 0 and global_position.z < 0:
+			# Completed a lap (crossed back to right side on the bottom)
+			lap_count += 1
+			emit_signal("lap_completed", player_id, lap_count)
+		last_half = current_half
 
 	# --- Terrain alignment ---
 	_align_to_terrain(delta)
