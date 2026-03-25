@@ -108,8 +108,7 @@ func _build_figure_eight_road() -> void:
 
 
 func _build_hill(pos: Vector3, radius: float, height: float) -> void:
-	var base_h = _get_ground_height(pos.x, pos.z)
-	var hill_y = base_h - radius + height
+	var hill_y = -radius + height
 
 	# Hill (visual only)
 	var hill = MeshInstance3D.new()
@@ -124,13 +123,9 @@ func _build_hill(pos: Vector3, radius: float, height: float) -> void:
 	add_child(hill)
 
 
-func _get_ground_height(x: float, z: float) -> float:
-	# Must match player_kart.gd
-	var h = 0.0
-	h += sin(x * 0.02) * 1.5
-	h += sin(z * 0.03) * 1.0
-	h += sin(x * 0.05 + z * 0.04) * 0.5
-	return h
+func _get_ground_height(_x: float, _z: float) -> float:
+	# Flat ground matching the visual grass plane at y=0
+	return 0.0
 
 
 func _spawn_kart() -> void:
