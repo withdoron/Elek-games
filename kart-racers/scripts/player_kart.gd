@@ -46,9 +46,9 @@ const OVAL_RZ = 240.0
 const ROAD_WIDTH = 48.0
 const ARENA_SIZE = 600.0
 
-# Center mountain — blocks shortcuts through the middle
+# Center mountain — impossibly steep, can't drive over
 const MOUNTAIN_RADIUS = 150.0
-const MOUNTAIN_HEIGHT = 60.0
+const MOUNTAIN_HEIGHT = 540.0
 
 # Hills on/near the track
 const HILLS = [
@@ -61,7 +61,7 @@ const HILLS = [
 	[50.0, 300.0, 15.0, 40.0],
 ]
 
-# Boulders: [x, z, radius] — obstacles on the road
+# Boulders: [x, z, radius] — obstacles on/near the road
 const BOULDERS = [
 	[340.0, -120.0, 6.0],
 	[-350.0, 80.0, 7.0],
@@ -69,16 +69,33 @@ const BOULDERS = [
 	[-100.0, -230.0, 6.0],
 	[380.0, 100.0, 5.0],
 	[-280.0, -180.0, 7.0],
+	# More boulders on the track
+	[360.0, -30.0, 5.0],
+	[-360.0, -60.0, 6.0],
+	[150.0, -240.0, 5.0],
+	[-250.0, 160.0, 6.0],
+	[300.0, 200.0, 5.0],
+	[-180.0, -200.0, 7.0],
+	[50.0, 240.0, 5.0],
+	[-320.0, -120.0, 6.0],
 ]
 
-# Mud zones around boulders — [x, z, radius]
+# Mud zones — bigger, spill onto the road
 const MUD_ZONES = [
-	[340.0, -120.0, 20.0],
-	[-350.0, 80.0, 22.0],
-	[200.0, 220.0, 18.0],
-	[-100.0, -230.0, 20.0],
-	[380.0, 100.0, 18.0],
-	[-280.0, -180.0, 22.0],
+	[340.0, -120.0, 30.0],
+	[-350.0, 80.0, 35.0],
+	[200.0, 220.0, 28.0],
+	[-100.0, -230.0, 32.0],
+	[380.0, 100.0, 28.0],
+	[-280.0, -180.0, 35.0],
+	[360.0, -30.0, 25.0],
+	[-360.0, -60.0, 30.0],
+	[150.0, -240.0, 25.0],
+	[-250.0, 160.0, 28.0],
+	[300.0, 200.0, 25.0],
+	[-180.0, -200.0, 30.0],
+	[50.0, 240.0, 25.0],
+	[-320.0, -120.0, 28.0],
 ]
 
 var body_mesh: Node3D
@@ -210,7 +227,7 @@ func _physics_process(delta: float) -> void:
 
 	var surface_max = s.max_speed
 	if in_mud:
-		surface_max *= 0.55  # mud: 45% speed reduction
+		surface_max *= 0.85  # mud: slight speed reduction, traction is the real penalty
 	elif not on_road:
 		surface_max *= 0.85  # grass: 15% reduction
 
@@ -222,7 +239,7 @@ func _physics_process(delta: float) -> void:
 	if throttle > 0.0 and speed >= 0.0:
 		var accel = s.acceleration
 		if in_mud:
-			accel *= 0.5  # slower acceleration in mud
+			accel *= 0.8  # slightly slower acceleration in mud
 		speed = move_toward(speed, surface_max * throttle, accel * throttle * delta)
 	elif brake_input > 0.0:
 		if speed > 0.5:
@@ -248,8 +265,8 @@ func _physics_process(delta: float) -> void:
 	var speed_ratio = clamp(abs(speed) / max(s.max_speed, 0.01), 0.0, 1.0)
 	var turn_reduction = lerp(1.0, s.turn_speed_factor, speed_ratio)
 
-	# Mud makes steering sluggish
-	var steer_mult = 0.4 if in_mud else 1.0
+	# Mud makes steering loose — can still turn but truck slides
+	var steer_mult = 0.6 if in_mud else 1.0
 
 	if abs(speed) > 0.5:
 		var direction_mult = 1.0 if speed >= 0.0 else -1.0
@@ -273,8 +290,8 @@ func _physics_process(delta: float) -> void:
 	if is_drifting:
 		move_velocity = forward_vel + lateral * 0.96
 	elif in_mud:
-		# Mud: very low grip, truck slides around
-		move_velocity = forward_vel + lateral * 0.97
+		# Mud: terrible traction — truck slides like ice
+		move_velocity = forward_vel + lateral * 0.985
 	else:
 		var speed_slide = clamp(abs(speed) / max(s.max_speed, 1.0), 0.0, 1.0)
 		var effective_grip = lerp(s.drift_factor * 0.5, s.drift_factor, 1.0 - speed_slide * 0.4)
