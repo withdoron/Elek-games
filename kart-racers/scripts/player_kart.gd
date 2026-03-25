@@ -201,9 +201,9 @@ func _physics_process(delta: float) -> void:
 		var fwd = -transform.basis.z.normalized()
 		emit_signal("use_item", player_id, held_item, global_position, fwd)
 		if held_item == "boost":
-			# Instant boost — apply directly
-			drift_boost_timer = 1.5
-			speed = max(speed, Settings.max_speed * 0.9)
+			# Long speed boost
+			drift_boost_timer = 4.0
+			speed = max(speed, Settings.max_speed * 1.1)
 		held_item = ""
 
 	# --- MK64 Powerslide ---
@@ -236,7 +236,7 @@ func _physics_process(delta: float) -> void:
 	if in_mud:
 		surface_max *= 0.95  # mud: barely slower — traction is the penalty, not speed
 	elif not on_road:
-		surface_max *= 0.85  # grass: 15% reduction
+		surface_max *= 0.50  # grass: 50% reduction — stay on the road
 
 	if drift_boost_timer > 0:
 		drift_boost_timer -= delta

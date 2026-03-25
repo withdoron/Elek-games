@@ -412,8 +412,8 @@ func _on_use_item(pid: int, item: String, pos: Vector3, fwd: Vector3) -> void:
 		missile.material_override = mat
 		missile.position = pos + fwd * 3.0 + Vector3(0, 1.5, 0)
 		missile.set_meta("owner_id", pid)
-		missile.set_meta("velocity", fwd * 80.0)  # fast
-		missile.set_meta("lifetime", 5.0)
+		missile.set_meta("velocity", fwd * 150.0)  # very fast
+		missile.set_meta("lifetime", 8.0)
 		world_node.add_child(missile)
 		missiles.append(missile)
 	# "boost" is handled directly in player_kart.gd
@@ -705,7 +705,7 @@ func _update_missiles(delta: float) -> void:
 
 		if nearest_kart:
 			var to_target = (nearest_kart.global_position + Vector3(0, 1.5, 0) - missile.global_position).normalized()
-			vel = vel.normalized().lerp(to_target, 3.0 * delta) * vel.length()
+			vel = vel.normalized().lerp(to_target, 8.0 * delta) * vel.length()
 			missile.set_meta("velocity", vel)
 			missile.look_at(missile.global_position + vel)
 
