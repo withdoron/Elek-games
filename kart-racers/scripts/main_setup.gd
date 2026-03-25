@@ -8,7 +8,15 @@ var menu_ui: Control
 var player_count: int = 1
 var split_containers: Array = []
 var hud_nodes: Array = []
-var oil_spills: Array = []  # active oil spill nodes in the world
+var oil_spills: Array = []
+
+# Countdown state
+var countdown_active: bool = false
+var countdown_timer: float = 0.0
+var countdown_phase: int = 0  # 0=wait, 1=red1, 2=red2, 3=green
+var countdown_label: Label
+var countdown_canvas: CanvasLayer
+var gas_pressed_during_countdown: Dictionary = {}  # player_id -> when they pressed gas
 
 const ARENA_SIZE = 200.0
 
@@ -38,9 +46,29 @@ func _ready() -> void:
 	get_tree().paused = true
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	if get_tree().paused:
 		return
+
+	# --- Countdown logic ---
+	if countdown_active:
+		countdown_timer += delta
+		_update_countdown()
+		# Check if players press gas during countdown (for turbo start)
+		for kart in karts:
+			var device = kart.player_id
+			var gas = false
+			if kart.player_id == 0 and Input.is_action_pressed("accelerate"):
+				gas = true
+			if Input.is_joy_button_pressed(device, JOY_BUTTON_A):
+				gas = true
+			if Input.get_joy_axis(device, JOY_AXIS_TRIGGER_RIGHT) > 0.3:
+				gas = true
+			if gas and kart.player_id not in gas_pressed_during_countdown:
+				gas_pressed_during_countdown[kart.player_id] = countdown_timer
+		return
+
+	# --- Normal game HUD ---
 	for i in range(karts.size()):
 		if karts[i] and i < speedometers.size() and speedometers[i]:
 			var spd = abs(karts[i].speed)
@@ -50,9 +78,79 @@ func _process(_delta: float) -> void:
 		if karts[i] and i < oil_labels.size() and oil_labels[i]:
 			oil_labels[i].text = "Oil: %d" % karts[i].oil_count
 
-	# Check collisions
 	_check_oil_collisions()
 	_check_truck_collisions()
+
+
+func _start_countdown() -> void:
+	countdown_active = true
+	countdown_timer = 0.0
+	countdown_phase = 0
+	gas_pressed_during_countdown.clear()
+
+	# Countdown UI
+	countdown_canvas = CanvasLayer.new()
+	countdown_canvas.name = "CountdownLayer"
+	countdown_canvas.layer = 8
+	add_child(countdown_canvas)
+
+	countdown_label = Label.new()
+	countdown_label.text = ""
+	countdown_label.add_theme_font_size_override("font_size", 72)
+	countdown_label.add_theme_color_override("font_color", Color.RED)
+	countdown_label.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.8))
+	countdown_label.add_theme_constant_override("shadow_offset_x", 3)
+	countdown_label.add_theme_constant_override("shadow_offset_y", 3)
+	countdown_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	countdown_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	countdown_label.set_anchors_preset(Control.PRESET_CENTER)
+	countdown_label.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	countdown_label.grow_vertical = Control.GROW_DIRECTION_BOTH
+	countdown_label.custom_minimum_size = Vector2(400, 100)
+	countdown_canvas.add_child(countdown_label)
+
+	# Block all kart input
+	for kart in karts:
+		kart.race_started = false
+
+
+func _update_countdown() -> void:
+	# Timeline: 0-1s = red, 1-2s = red, 2-3s = GREEN + GO!
+	var old_phase = countdown_phase
+
+	if countdown_timer < 1.0:
+		countdown_phase = 1
+		countdown_label.text = "3"
+		countdown_label.add_theme_color_override("font_color", Color.RED)
+	elif countdown_timer < 2.0:
+		countdown_phase = 2
+		countdown_label.text = "2"
+		countdown_label.add_theme_color_override("font_color", Color(1.0, 0.8, 0.0))
+	elif countdown_timer < 3.0:
+		if countdown_phase < 3:
+			countdown_phase = 3
+			countdown_label.text = "GO!"
+			countdown_label.add_theme_color_override("font_color", Color.GREEN)
+
+			# Race starts — check for turbo start
+			# Sweet spot: pressed gas between 1.8 and 2.2 (just before green)
+			for kart in karts:
+				kart.race_started = true
+				var pid = kart.player_id
+				if pid in gas_pressed_during_countdown:
+					var press_time = gas_pressed_during_countdown[pid]
+					if press_time >= 1.6 and press_time <= 2.3:
+						# Perfect turbo start!
+						kart.turbo_start()
+					elif press_time < 1.6:
+						# Pressed too early — stall/spin out
+						kart.start_spinout()
+	else:
+		# Countdown done — remove UI
+		countdown_active = false
+		if countdown_canvas:
+			countdown_canvas.queue_free()
+			countdown_canvas = null
 
 
 func _build_world() -> void:
@@ -121,6 +219,9 @@ func _start_game(num_players: int) -> void:
 
 	get_tree().paused = false
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+
+	# Start the countdown
+	_start_countdown()
 
 
 func _start_single_player() -> void:

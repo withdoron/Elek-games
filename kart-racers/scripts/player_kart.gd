@@ -30,6 +30,9 @@ var lap_count: int = 0
 var last_half: int = 0
 signal lap_completed(player_id: int, lap: int)
 
+# Race state
+var race_started: bool = false  # blocks input until countdown finishes
+
 # Set by main_setup
 var player_id: int = 0
 var truck_color: Color = Color(0.2, 0.35, 0.8)
@@ -56,7 +59,7 @@ var front_pivots: Array = []
 var wheel_meshes: Array = []
 var camera: Camera3D
 var dirt_particles: Array = []
-var engine_audio: AudioStreamPlayer3D
+var engine_audio: AudioStreamPlayer
 var drift_sparks: CPUParticles3D
 
 
@@ -88,19 +91,25 @@ func _physics_process(delta: float) -> void:
 
 		if spinout_timer <= 0:
 			is_spinning_out = false
+			if body_mesh:
+				body_mesh.rotation.y = 0.0  # reset body spin
 		else:
-			# Spin the truck and slow down
-			rotate_y(12.0 * delta)
+			# Spin only the body mesh, NOT the root (camera stays stable)
+			if body_mesh:
+				body_mesh.rotate_y(12.0 * delta)
 			speed = move_toward(speed, 0.0, 20.0 * delta)
 			var fwd = -transform.basis.z.normalized()
 			global_position += fwd * speed * delta
-			# Wall clamping during spinout
 			global_position.x = clamp(global_position.x, -198.0, 198.0)
 			global_position.z = clamp(global_position.z, -198.0, 198.0)
-			# Ground snap
 			global_position.y = _get_ground_height(global_position.x, global_position.z) + RIDE_HEIGHT
 			_update_visuals(delta, 0.0, false)
 			return
+
+	# --- Wait for race start ---
+	if not race_started:
+		_update_visuals(delta, 0.0, false)
+		return
 
 	# --- Input ---
 	var throttle = 0.0
@@ -292,6 +301,11 @@ func _physics_process(delta: float) -> void:
 	_update_visuals(delta, steer_input, on_road)
 
 
+func turbo_start() -> void:
+	speed = Settings.max_speed * 0.8
+	drift_boost_timer = 1.0  # 1 second of boost
+
+
 func start_spinout() -> void:
 	is_spinning_out = true
 	spinout_timer = SPINOUT_DURATION
@@ -349,31 +363,38 @@ func _get_ground_height(x: float, z: float) -> float:
 # === AUDIO ===
 
 func _setup_engine_audio() -> void:
-	engine_audio = AudioStreamPlayer3D.new()
+	# Use non-3D AudioStreamPlayer — always audible regardless of camera setup
+	engine_audio = AudioStreamPlayer.new()
 	engine_audio.name = "EngineAudio"
-	engine_audio.max_distance = 100.0
 
 	var sample_rate = 22050
-	var samples = int(sample_rate * 0.1)
+	var duration = 0.05  # very short loop for engine drone
+	var samples = int(sample_rate * duration)
+
 	var audio = AudioStreamWAV.new()
 	audio.format = AudioStreamWAV.FORMAT_16_BITS
 	audio.mix_rate = sample_rate
 	audio.stereo = false
 	audio.loop_mode = AudioStreamWAV.LOOP_FORWARD
+	audio.loop_begin = 0
 	audio.loop_end = samples
 
 	var data = PackedByteArray()
 	data.resize(samples * 2)
 	for i in range(samples):
 		var t = float(i) / sample_rate
-		var wave = sin(t * 80.0 * TAU) * 0.4 + sin(t * 160.0 * TAU) * 0.2 + sin(t * 40.0 * TAU) * 0.3
-		var sample_val = int(clamp(wave, -1.0, 1.0) * 16000)
-		data[i * 2] = sample_val & 0xFF
-		data[i * 2 + 1] = (sample_val >> 8) & 0xFF
+		# Mix harmonics for a rough engine sound
+		var wave = sin(t * 80.0 * TAU) * 0.5
+		wave += sin(t * 160.0 * TAU) * 0.25
+		wave += sin(t * 40.0 * TAU) * 0.2
+		# Add some grit
+		wave += sin(t * 240.0 * TAU) * 0.1
+		var sample_val = int(clamp(wave, -1.0, 1.0) * 24000)
+		data.encode_s16(i * 2, sample_val)
 
 	audio.data = data
 	engine_audio.stream = audio
-	engine_audio.volume_db = -8.0
+	engine_audio.volume_db = -6.0
 	add_child(engine_audio)
 	engine_audio.play()
 
