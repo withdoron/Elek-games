@@ -67,12 +67,12 @@ func _physics_process(delta: float) -> void:
 		speed = move_toward(speed, 0.0, s.coast_decel * delta)
 
 	# --- Steering ---
-	var speed_ratio := clamp(abs(speed) / max(s.max_speed, 0.01), 0.0, 1.0)
-	var turn_reduction := lerp(1.0, s.turn_speed_factor, speed_ratio)
+	var speed_ratio = clamp(abs(speed) / max(s.max_speed, 0.01), 0.0, 1.0)
+	var turn_reduction = lerp(1.0, s.turn_speed_factor, speed_ratio)
 
 	if abs(speed) > 0.5:
 		var direction_mult := 1.0 if speed >= 0.0 else -1.0
-		var target_steer := steer_input * s.turn_speed * turn_reduction * direction_mult
+		var target_steer = steer_input * s.turn_speed * turn_reduction * direction_mult
 		steer_angle = lerp(steer_angle, target_steer, s.drift_turn_boost * delta)
 	else:
 		steer_angle = move_toward(steer_angle, 0.0, s.return_to_center * delta)
@@ -123,7 +123,7 @@ func _get_ground_height(x: float, z: float) -> float:
 
 func _update_visuals(delta: float) -> void:
 	# Wheel steering visual
-	var target_visual := clamp(steer_angle * 0.4, -0.6, 0.6)
+	var target_visual = clamp(steer_angle * 0.4, -0.6, 0.6)
 	visual_wheel_angle = lerp(visual_wheel_angle, target_visual, 10.0 * delta)
 
 	# Spin all wheels based on speed
