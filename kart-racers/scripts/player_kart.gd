@@ -3,10 +3,13 @@ extends Node3D
 var speed: float = 0.0
 var steer_angle: float = 0.0
 var kart_tilt: float = 0.0
-var move_velocity: Vector3 = Vector3.ZERO  # manual velocity tracking for drift
+var move_velocity: Vector3 = Vector3.ZERO
+var vertical_velocity: float = 0.0
+var on_ground: bool = true
 
-# Offset above math ground height — compensates for mesh approximation error
-const GROUND_OFFSET = 0.3
+# Wheel contact height — how high the truck origin sits above ground
+const RIDE_HEIGHT = 0.3
+const GRAVITY = 40.0
 
 # Node references
 var body_mesh: Node3D
@@ -101,21 +104,54 @@ func _physics_process(delta: float) -> void:
 	move_velocity = forward_vel + lateral * s.drift_factor
 	move_velocity.y = 0
 
-	# --- Move manually (no move_and_slide, no physics fighting) ---
-	global_position += move_velocity * delta
+	# --- Horizontal movement ---
+	global_position.x += move_velocity.x * delta
+	global_position.z += move_velocity.z * delta
 
 	# --- Arena wall clamping ---
 	var wall_limit = 198.0
 	global_position.x = clamp(global_position.x, -wall_limit, wall_limit)
 	global_position.z = clamp(global_position.z, -wall_limit, wall_limit)
-	# Kill speed if hitting a wall
 	if abs(global_position.x) >= wall_limit or abs(global_position.z) >= wall_limit:
 		speed *= 0.9
 
-	# --- ALWAYS snap Y to ground. Every frame. No exceptions. ---
-	global_position.y = _get_ground_height(global_position.x, global_position.z) + GROUND_OFFSET
+	# --- Vertical physics: gravity + ground contact ---
+	var ground_y = _get_ground_height(global_position.x, global_position.z) + RIDE_HEIGHT
 
-	# --- Tilt truck to match terrain slope ---
+	# Apply gravity
+	vertical_velocity -= GRAVITY * delta
+
+	# Move vertically
+	global_position.y += vertical_velocity * delta
+
+	# Ground contact check
+	if global_position.y <= ground_y:
+		# Landing / on ground
+		global_position.y = ground_y
+		if vertical_velocity < -15.0:
+			# Hard landing — small bounce
+			vertical_velocity = -vertical_velocity * 0.15
+		else:
+			vertical_velocity = 0.0
+		on_ground = true
+
+		# When on ground going over a hill crest at speed, compute
+		# the terrain slope to see if we should launch
+		var look_ahead = 2.0
+		var fwd_pos_x = global_position.x + forward_dir.x * look_ahead
+		var fwd_pos_z = global_position.z + forward_dir.z * look_ahead
+		var ground_ahead = _get_ground_height(fwd_pos_x, fwd_pos_z) + RIDE_HEIGHT
+		var ground_slope = (ground_ahead - ground_y) / look_ahead
+
+		# If terrain drops away and we're going fast, launch!
+		if ground_slope < -0.15 and abs(speed) > 10.0:
+			var launch_power = abs(speed) * abs(ground_slope) * 0.5
+			vertical_velocity = clamp(launch_power, 0.0, 12.0)
+			on_ground = false
+	else:
+		on_ground = false
+
+	# --- Tilt truck to match terrain (only when on/near ground) ---
 	_align_to_terrain(delta)
 
 	# --- Visuals ---
@@ -123,29 +159,35 @@ func _physics_process(delta: float) -> void:
 
 
 func _align_to_terrain(delta: float) -> void:
-	# Sample ground at 4 points around the truck to get slope
-	var d = 1.5
-	var pos = global_position
-	var fwd = -transform.basis.z.normalized()
-	var right_dir = transform.basis.x.normalized()
+	var target_pitch = 0.0
+	var target_roll = 0.0
 
-	var h_front = _get_ground_height(pos.x + fwd.x * d, pos.z + fwd.z * d)
-	var h_back = _get_ground_height(pos.x - fwd.x * d, pos.z - fwd.z * d)
-	var h_left = _get_ground_height(pos.x - right_dir.x * d, pos.z - right_dir.z * d)
-	var h_right = _get_ground_height(pos.x + right_dir.x * d, pos.z + right_dir.z * d)
+	if on_ground:
+		# Sample ground at 4 wheel positions to get slope
+		var d = 1.5
+		var pos = global_position
+		var fwd = -transform.basis.z.normalized()
+		var right_dir = transform.basis.x.normalized()
 
-	# Pitch (forward/back tilt) and roll (left/right tilt)
-	var target_pitch = atan2(h_front - h_back, d * 2.0)
-	var target_roll = atan2(h_right - h_left, d * 2.0)
+		var h_front = _get_ground_height(pos.x + fwd.x * d, pos.z + fwd.z * d)
+		var h_back = _get_ground_height(pos.x - fwd.x * d, pos.z - fwd.z * d)
+		var h_left = _get_ground_height(pos.x - right_dir.x * d, pos.z - right_dir.z * d)
+		var h_right = _get_ground_height(pos.x + right_dir.x * d, pos.z + right_dir.z * d)
 
-	# Clamp tilt to max ~30 degrees so truck doesn't flip on steep terrain
-	var max_tilt = deg_to_rad(30.0)
+		target_pitch = atan2(h_front - h_back, d * 2.0)
+		target_roll = atan2(h_right - h_left, d * 2.0)
+	else:
+		# In the air — tilt based on vertical velocity (nose up when rising, down when falling)
+		target_pitch = clamp(vertical_velocity * 0.02, deg_to_rad(-20), deg_to_rad(15))
+		target_roll = 0.0
+
+	# Clamp terrain tilt
+	var max_tilt = deg_to_rad(35.0)
 	target_pitch = clamp(target_pitch, -max_tilt, max_tilt)
 	target_roll = clamp(target_roll, -max_tilt, max_tilt)
 
-	# All visual tilt on body_mesh — root stays flat for steering math
 	if body_mesh:
-		var t = 8.0 * delta
+		var t = 8.0 * delta if on_ground else 3.0 * delta
 		body_mesh.rotation.x = lerp(body_mesh.rotation.x, target_pitch, t)
 		body_mesh.rotation.z = lerp(body_mesh.rotation.z, target_roll, t)
 
