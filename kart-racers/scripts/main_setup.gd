@@ -4,10 +4,23 @@ var kart: Node3D
 var speedometer: Label
 var menu_ui: Control
 
-# Hill parameters — shared with player_kart.gd via get_ground_height
-const HILL_CENTER_Z = -50.0
-const HILL_HALF_WIDTH = 30.0
-const HILL_HEIGHT = 12.0
+# Arena boundary
+const ARENA_SIZE = 200.0
+
+# Hill definitions: [center_x, center_z, height, radius]
+const HILLS = [
+	[0.0, -50.0, 12.0, 30.0],
+	[80.0, 40.0, 8.0, 25.0],
+	[-70.0, -30.0, 6.0, 20.0],
+	[40.0, -100.0, 10.0, 22.0],
+	[-50.0, 70.0, 5.0, 18.0],
+]
+
+# Oval road parameters
+const OVAL_RX = 120.0  # X radius
+const OVAL_RZ = 80.0   # Z radius
+const ROAD_WIDTH = 12.0
+const ROAD_SEGMENTS = 300
 
 
 func _ready() -> void:
@@ -49,15 +62,17 @@ func _build_world() -> void:
 	sun.shadow_enabled = true
 	add_child(sun)
 
-	# --- Ground terrain (one smooth mesh covering everything) ---
+	# --- Terrain mesh ---
 	_build_terrain_mesh()
 
-	# --- Road (smooth mesh on top of terrain) ---
-	_build_road_mesh()
+	# --- Oval road mesh ---
+	_build_oval_road()
+
+	# --- Arena walls ---
+	_build_walls()
 
 
 func _build_terrain_mesh() -> void:
-	# Build a single smooth mesh for the entire ground using SurfaceTool
 	var st = SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 
@@ -65,40 +80,27 @@ func _build_terrain_mesh() -> void:
 	mat.albedo_color = Color(0.25, 0.55, 0.2)
 	st.set_material(mat)
 
-	var x_min = -150.0
-	var x_max = 150.0
-	var z_min = -130.0
-	var z_max = 80.0
-	var x_steps = 60
-	var z_steps = 80
+	var extent = ARENA_SIZE + 10.0
+	var steps = 100
+	var step_size = (extent * 2.0) / steps
 
-	var x_step = (x_max - x_min) / x_steps
-	var z_step = (z_max - z_min) / z_steps
+	for zi in range(steps):
+		for xi in range(steps):
+			var x0 = -extent + xi * step_size
+			var x1 = x0 + step_size
+			var z0 = -extent + zi * step_size
+			var z1 = z0 + step_size
 
-	for zi in range(z_steps):
-		for xi in range(x_steps):
-			var x0 = x_min + xi * x_step
-			var x1 = x0 + x_step
-			var z0 = z_min + zi * z_step
-			var z1 = z0 + z_step
+			var v00 = Vector3(x0, get_ground_height(x0, z0), z0)
+			var v10 = Vector3(x1, get_ground_height(x1, z0), z0)
+			var v01 = Vector3(x0, get_ground_height(x0, z1), z1)
+			var v11 = Vector3(x1, get_ground_height(x1, z1), z1)
 
-			var y00 = get_ground_height(x0, z0)
-			var y10 = get_ground_height(x1, z0)
-			var y01 = get_ground_height(x0, z1)
-			var y11 = get_ground_height(x1, z1)
-
-			var v00 = Vector3(x0, y00, z0)
-			var v10 = Vector3(x1, y10, z0)
-			var v01 = Vector3(x0, y01, z1)
-			var v11 = Vector3(x1, y11, z1)
-
-			# Triangle 1
 			st.set_normal(_calc_normal(v00, v10, v01))
 			st.add_vertex(v00)
 			st.add_vertex(v10)
 			st.add_vertex(v01)
 
-			# Triangle 2
 			st.set_normal(_calc_normal(v10, v11, v01))
 			st.add_vertex(v10)
 			st.add_vertex(v11)
@@ -110,8 +112,7 @@ func _build_terrain_mesh() -> void:
 	add_child(mesh_inst)
 
 
-func _build_road_mesh() -> void:
-	# Build a smooth road strip using SurfaceTool — sits slightly above terrain
+func _build_oval_road() -> void:
 	var st = SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 
@@ -119,32 +120,59 @@ func _build_road_mesh() -> void:
 	mat.albedo_color = Color(0.45, 0.35, 0.22)
 	st.set_material(mat)
 
-	var road_half_w = 5.0
-	var z_min = -130.0
-	var z_max = 80.0
-	var z_steps = 200
-	var z_step = (z_max - z_min) / z_steps
-	var road_lift = 0.05  # just enough above terrain to prevent z-fighting
+	var road_half_w = ROAD_WIDTH / 2.0
+	var road_lift = 0.05
 
-	for zi in range(z_steps):
-		var z0 = z_min + zi * z_step
-		var z1 = z0 + z_step
+	for i in range(ROAD_SEGMENTS):
+		var t0 = (float(i) / ROAD_SEGMENTS) * TAU
+		var t1 = (float(i + 1) / ROAD_SEGMENTS) * TAU
 
-		var y0 = get_ground_height(0, z0) + road_lift
-		var y1 = get_ground_height(0, z1) + road_lift
+		# Center points on the oval
+		var cx0 = cos(t0) * OVAL_RX
+		var cz0 = sin(t0) * OVAL_RZ
+		var cx1 = cos(t1) * OVAL_RX
+		var cz1 = sin(t1) * OVAL_RZ
 
-		var v_l0 = Vector3(-road_half_w, y0, z0)
-		var v_r0 = Vector3(road_half_w, y0, z0)
-		var v_l1 = Vector3(-road_half_w, y1, z1)
-		var v_r1 = Vector3(road_half_w, y1, z1)
+		# Tangent direction at each point (derivative of ellipse)
+		var tx0 = -sin(t0) * OVAL_RX
+		var tz0 = cos(t0) * OVAL_RZ
+		var len0 = sqrt(tx0 * tx0 + tz0 * tz0)
+		# Normal (perpendicular to tangent, pointing outward)
+		var nx0 = tz0 / len0
+		var nz0 = -tx0 / len0
 
-		# Triangle 1
+		var tx1 = -sin(t1) * OVAL_RX
+		var tz1 = cos(t1) * OVAL_RZ
+		var len1 = sqrt(tx1 * tx1 + tz1 * tz1)
+		var nx1 = tz1 / len1
+		var nz1 = -tx1 / len1
+
+		# Inner and outer edge points
+		var lx0 = cx0 - nx0 * road_half_w
+		var lz0 = cz0 - nz0 * road_half_w
+		var rx0 = cx0 + nx0 * road_half_w
+		var rz0 = cz0 + nz0 * road_half_w
+
+		var lx1 = cx1 - nx1 * road_half_w
+		var lz1 = cz1 - nz1 * road_half_w
+		var rx1 = cx1 + nx1 * road_half_w
+		var rz1 = cz1 + nz1 * road_half_w
+
+		var y_l0 = get_ground_height(lx0, lz0) + road_lift
+		var y_r0 = get_ground_height(rx0, rz0) + road_lift
+		var y_l1 = get_ground_height(lx1, lz1) + road_lift
+		var y_r1 = get_ground_height(rx1, rz1) + road_lift
+
+		var v_l0 = Vector3(lx0, y_l0, lz0)
+		var v_r0 = Vector3(rx0, y_r0, rz0)
+		var v_l1 = Vector3(lx1, y_l1, lz1)
+		var v_r1 = Vector3(rx1, y_r1, rz1)
+
 		st.set_normal(_calc_normal(v_l0, v_r0, v_l1))
 		st.add_vertex(v_l0)
 		st.add_vertex(v_r0)
 		st.add_vertex(v_l1)
 
-		# Triangle 2
 		st.set_normal(_calc_normal(v_r0, v_r1, v_l1))
 		st.add_vertex(v_r0)
 		st.add_vertex(v_r1)
@@ -156,23 +184,59 @@ func _build_road_mesh() -> void:
 	add_child(mesh_inst)
 
 
+func _build_walls() -> void:
+	var wall_mat = StandardMaterial3D.new()
+	wall_mat.albedo_color = Color(0.35, 0.35, 0.38)
+	wall_mat.roughness = 0.9
+
+	var wall_height = 15.0
+	var wall_thickness = 3.0
+	var s = ARENA_SIZE
+
+	# [position, size]
+	var walls = [
+		[Vector3(0, wall_height / 2.0, -s), Vector3(s * 2.0 + wall_thickness * 2, wall_height, wall_thickness)],  # North
+		[Vector3(0, wall_height / 2.0, s), Vector3(s * 2.0 + wall_thickness * 2, wall_height, wall_thickness)],   # South
+		[Vector3(-s, wall_height / 2.0, 0), Vector3(wall_thickness, wall_height, s * 2.0)],  # West
+		[Vector3(s, wall_height / 2.0, 0), Vector3(wall_thickness, wall_height, s * 2.0)],   # East
+	]
+
+	for w in walls:
+		var wall = MeshInstance3D.new()
+		var box = BoxMesh.new()
+		box.size = w[1]
+		wall.mesh = box
+		wall.material_override = wall_mat
+		wall.position = w[0]
+		add_child(wall)
+
+
 func _calc_normal(a: Vector3, b: Vector3, c: Vector3) -> Vector3:
 	return (b - a).cross(c - a).normalized()
 
 
-func get_ground_height(_x: float, z: float) -> float:
-	var dist = abs(z - HILL_CENTER_Z)
-	if dist >= HILL_HALF_WIDTH:
-		return 0.0
-	return HILL_HEIGHT * 0.5 * (1.0 + cos(PI * dist / HILL_HALF_WIDTH))
+func get_ground_height(x: float, z: float) -> float:
+	var h = 0.0
+	for hill in HILLS:
+		var dx = x - hill[0]
+		var dz = z - hill[1]
+		var dist = sqrt(dx * dx + dz * dz)
+		if dist < hill[3]:
+			h += hill[2] * 0.5 * (1.0 + cos(PI * dist / hill[3]))
+	return h
 
 
 func _spawn_kart() -> void:
 	kart = Node3D.new()
 	kart.set_script(preload("res://scripts/player_kart.gd"))
 	kart.name = "PlayerKart"
-	var start_z = 50.0
-	kart.position = Vector3(0, 0, start_z)
+	# Start on the oval road, right side, facing forward (-Z along track)
+	var start_x = OVAL_RX
+	var start_z = 0.0
+	var start_y = get_ground_height(start_x, start_z)
+	kart.position = Vector3(start_x, start_y, start_z)
+	# Face along the track (tangent at right side of oval points -Z)
+	kart.rotation.y = PI
 	add_child(kart)
 
 

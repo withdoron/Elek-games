@@ -102,6 +102,14 @@ func _physics_process(delta: float) -> void:
 	# --- Move manually (no move_and_slide, no physics fighting) ---
 	global_position += move_velocity * delta
 
+	# --- Arena wall clamping ---
+	var wall_limit = 198.0
+	global_position.x = clamp(global_position.x, -wall_limit, wall_limit)
+	global_position.z = clamp(global_position.z, -wall_limit, wall_limit)
+	# Kill speed if hitting a wall
+	if abs(global_position.x) >= wall_limit or abs(global_position.z) >= wall_limit:
+		speed *= 0.9
+
 	# --- ALWAYS snap Y to ground. Every frame. No exceptions. ---
 	global_position.y = _get_ground_height(global_position.x, global_position.z) + GROUND_OFFSET
 
@@ -135,15 +143,23 @@ func _align_to_terrain(delta: float) -> void:
 		body_mesh.rotation.z = lerp(body_mesh.rotation.z, target_roll, t)
 
 
-func _get_ground_height(_x: float, z: float) -> float:
-	# Smooth hill using cosine — must match main_setup.gd
-	var hill_center_z = -50.0
-	var hill_half_width = 30.0
-	var hill_height = 12.0
-	var dist = abs(z - hill_center_z)
-	if dist >= hill_half_width:
-		return 0.0
-	return hill_height * 0.5 * (1.0 + cos(PI * dist / hill_half_width))
+func _get_ground_height(x: float, z: float) -> float:
+	# Must match main_setup.gd HILLS array
+	var hills = [
+		[0.0, -50.0, 12.0, 30.0],
+		[80.0, 40.0, 8.0, 25.0],
+		[-70.0, -30.0, 6.0, 20.0],
+		[40.0, -100.0, 10.0, 22.0],
+		[-50.0, 70.0, 5.0, 18.0],
+	]
+	var h = 0.0
+	for hill in hills:
+		var dx = x - hill[0]
+		var dz = z - hill[1]
+		var dist = sqrt(dx * dx + dz * dz)
+		if dist < hill[3]:
+			h += hill[2] * 0.5 * (1.0 + cos(PI * dist / hill[3]))
+	return h
 
 
 func _update_visuals(delta: float, steer_input: float) -> void:
