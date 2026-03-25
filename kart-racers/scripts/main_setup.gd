@@ -3,14 +3,15 @@ extends Node3D
 var karts: Array = []
 var speedometers: Array = []
 var lap_labels: Array = []
+var oil_labels: Array = []
 var menu_ui: Control
 var player_count: int = 1
 var split_containers: Array = []
-var hud_nodes: Array = []  # cleanup references
+var hud_nodes: Array = []
+var oil_spills: Array = []  # active oil spill nodes in the world
 
 const ARENA_SIZE = 200.0
 
-# Bigger hills — 50-80% taller with wider radii
 const HILLS = [
 	[0.0, -50.0, 20.0, 40.0],
 	[80.0, 40.0, 14.0, 35.0],
@@ -29,7 +30,6 @@ var world_node: Node3D
 
 
 func _ready() -> void:
-	# Build the world in a shared node
 	world_node = Node3D.new()
 	world_node.name = "World"
 	add_child(world_node)
@@ -47,10 +47,14 @@ func _process(_delta: float) -> void:
 			speedometers[i].text = "%d km/h" % int(spd * 3.6)
 		if karts[i] and i < lap_labels.size() and lap_labels[i]:
 			lap_labels[i].text = "Lap %d" % karts[i].lap_count
+		if karts[i] and i < oil_labels.size() and oil_labels[i]:
+			oil_labels[i].text = "Oil: %d" % karts[i].oil_count
+
+	# Check oil spill collisions
+	_check_oil_collisions()
 
 
 func _build_world() -> void:
-	# Sky
 	var env = WorldEnvironment.new()
 	var environment = Environment.new()
 	var sky = Sky.new()
@@ -67,27 +71,20 @@ func _build_world() -> void:
 	env.environment = environment
 	world_node.add_child(env)
 
-	# Sun
 	var sun = DirectionalLight3D.new()
 	sun.rotation_degrees = Vector3(-45, 30, 0)
 	sun.light_energy = 1.2
 	sun.shadow_enabled = true
 	world_node.add_child(sun)
 
-	# Terrain
 	_build_terrain_mesh()
-
-	# Walls
 	_build_walls()
-
-	# Start/Finish line on the oval road (right side, z=0)
 	_build_start_finish_line()
 
 
 func _start_game(num_players: int) -> void:
 	player_count = num_players
 
-	# Clean up any existing karts, viewports, HUD
 	for k in karts:
 		if k and k.get_parent():
 			k.get_parent().remove_child(k)
@@ -95,6 +92,7 @@ func _start_game(num_players: int) -> void:
 	karts.clear()
 	speedometers.clear()
 	lap_labels.clear()
+	oil_labels.clear()
 
 	for sc in split_containers:
 		if sc and sc.get_parent():
@@ -107,6 +105,13 @@ func _start_game(num_players: int) -> void:
 			h.get_parent().remove_child(h)
 			h.queue_free()
 	hud_nodes.clear()
+
+	# Clear oil spills
+	for oil in oil_spills:
+		if oil and oil.get_parent():
+			oil.get_parent().remove_child(oil)
+			oil.queue_free()
+	oil_spills.clear()
 
 	if player_count == 1:
 		_start_single_player()
@@ -125,8 +130,8 @@ func _start_single_player() -> void:
 	kart.camera.current = true
 	karts.append(kart)
 	kart.connect("lap_completed", _on_lap_completed)
+	kart.connect("drop_oil", _on_drop_oil)
 
-	# HUD
 	var canvas = CanvasLayer.new()
 	canvas.name = "HUD_P1"
 	add_child(canvas)
@@ -140,44 +145,47 @@ func _start_single_player() -> void:
 	canvas.add_child(lap_label)
 	lap_labels.append(lap_label)
 
+	var oil_label = _make_oil_label(Vector2(20, 55))
+	canvas.add_child(oil_label)
+	oil_labels.append(oil_label)
+
 
 func _start_split_screen() -> void:
-	# Top/bottom split — full 1280x720 window, each half 1280x360
-	var screen_w = 1280
-	var half_h = 360
+	var win_size = get_viewport().get_visible_rect().size
+	var screen_w = int(win_size.x)
+	var half_h = int(win_size.y / 2)
 
-	var canvas = CanvasLayer.new()
-	canvas.name = "SplitScreenLayer"
-	canvas.layer = 0
-	add_child(canvas)
-	hud_nodes.append(canvas)
+	# Use a Control node as root for split containers (fills window)
+	var root_control = Control.new()
+	root_control.name = "SplitRoot"
+	root_control.set_anchors_preset(Control.PRESET_FULL_RECT)
+	add_child(root_control)
+	hud_nodes.append(root_control)
 
 	var colors = [Color(0.2, 0.35, 0.8), Color(0.8, 0.2, 0.2)]
 	var start_positions = [
 		Vector3(OVAL_RX, get_ground_height(OVAL_RX, 0) + 0.5, -5),
 		Vector3(OVAL_RX, get_ground_height(OVAL_RX, 0) + 0.5, 5),
 	]
-	var start_rotations = [PI, PI]  # both face same direction on the road
 
 	for i in range(2):
 		var kart = _create_kart(i, colors[i])
 		kart.position = start_positions[i]
-		kart.rotation.y = start_rotations[i]
+		kart.rotation.y = PI
 		world_node.add_child(kart)
 		kart.camera.current = false
 		karts.append(kart)
 		kart.connect("lap_completed", _on_lap_completed)
+		kart.connect("drop_oil", _on_drop_oil)
 
-		# SubViewportContainer — fills half the screen
 		var container = SubViewportContainer.new()
-		container.name = "ViewportContainer_P%d" % (i + 1)
+		container.name = "VP_P%d" % (i + 1)
 		container.position = Vector2(0, i * half_h)
 		container.size = Vector2(screen_w, half_h)
 		container.stretch = true
-		canvas.add_child(container)
+		root_control.add_child(container)
 		split_containers.append(container)
 
-		# SubViewport
 		var viewport = SubViewport.new()
 		viewport.name = "Viewport_P%d" % (i + 1)
 		viewport.size = Vector2i(screen_w, half_h)
@@ -185,45 +193,43 @@ func _start_split_screen() -> void:
 		viewport.world_3d = get_viewport().world_3d
 		container.add_child(viewport)
 
-		# Camera
 		var cam = Camera3D.new()
 		cam.name = "ViewportCam_P%d" % (i + 1)
 		cam.current = true
 		viewport.add_child(cam)
 
-	# HUD overlay on top of split screen
+	# HUD overlay
 	var hud_canvas = CanvasLayer.new()
 	hud_canvas.name = "SplitHUD"
 	hud_canvas.layer = 5
 	add_child(hud_canvas)
 	hud_nodes.append(hud_canvas)
 
-	# P1 speedo + lap (top half)
-	var speedo1 = _make_speedometer(Vector2(20, 320))
-	hud_canvas.add_child(speedo1)
-	speedometers.append(speedo1)
-	var lap1 = _make_lap_label(Vector2(20, 10))
-	hud_canvas.add_child(lap1)
-	lap_labels.append(lap1)
+	# P1 HUD (top)
+	speedometers.append(_make_speedometer(Vector2(20, half_h - 40)))
+	hud_canvas.add_child(speedometers[0])
+	lap_labels.append(_make_lap_label(Vector2(20, 10)))
+	hud_canvas.add_child(lap_labels[0])
+	oil_labels.append(_make_oil_label(Vector2(20, 45)))
+	hud_canvas.add_child(oil_labels[0])
 
-	# P2 speedo + lap (bottom half)
-	var speedo2 = _make_speedometer(Vector2(20, 680))
-	hud_canvas.add_child(speedo2)
-	speedometers.append(speedo2)
-	var lap2 = _make_lap_label(Vector2(20, 370))
-	hud_canvas.add_child(lap2)
-	lap_labels.append(lap2)
+	# P2 HUD (bottom)
+	speedometers.append(_make_speedometer(Vector2(20, half_h * 2 - 40)))
+	hud_canvas.add_child(speedometers[1])
+	lap_labels.append(_make_lap_label(Vector2(20, half_h + 10)))
+	hud_canvas.add_child(lap_labels[1])
+	oil_labels.append(_make_oil_label(Vector2(20, half_h + 45)))
+	hud_canvas.add_child(oil_labels[1])
 
-	# Divider line
+	# Divider
 	var divider = ColorRect.new()
-	divider.color = Color(0.2, 0.2, 0.2)
-	divider.position = Vector2(0, half_h - 1)
-	divider.size = Vector2(screen_w, 2)
+	divider.color = Color(0.3, 0.3, 0.3)
+	divider.position = Vector2(0, half_h - 2)
+	divider.size = Vector2(screen_w, 4)
 	hud_canvas.add_child(divider)
 
 
 func _physics_process(_delta: float) -> void:
-	# Update viewport cameras to follow their karts
 	if player_count == 2:
 		for i in range(min(karts.size(), split_containers.size())):
 			var kart = karts[i]
@@ -233,10 +239,46 @@ func _physics_process(_delta: float) -> void:
 				if viewport and viewport.get_child_count() > 0:
 					var cam = viewport.get_child(0) as Camera3D
 					if cam:
-						# Follow kart — same offset as chase camera
 						var offset = kart.transform.basis * Vector3(0, 5.5, 10)
 						cam.global_position = kart.global_position + offset
 						cam.look_at(kart.global_position + Vector3(0, 2, 0))
+
+
+# === OIL SPILLS ===
+
+func _on_drop_oil(pid: int, pos: Vector3) -> void:
+	var oil = MeshInstance3D.new()
+	oil.name = "OilSpill_P%d" % pid
+	var cyl = CylinderMesh.new()
+	cyl.top_radius = 3.0
+	cyl.bottom_radius = 3.0
+	cyl.height = 0.05
+	oil.mesh = cyl
+	var mat = StandardMaterial3D.new()
+	mat.albedo_color = Color(0.05, 0.05, 0.08, 0.85)
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.metallic = 0.8
+	oil.material_override = mat
+	oil.position = Vector3(pos.x, pos.y + 0.1, pos.z)
+	oil.set_meta("owner_id", pid)
+	world_node.add_child(oil)
+	oil_spills.append(oil)
+
+
+func _check_oil_collisions() -> void:
+	for oil in oil_spills:
+		if not oil or not is_instance_valid(oil):
+			continue
+		var oil_pos = oil.global_position
+		var owner_id = oil.get_meta("owner_id")
+		for kart in karts:
+			if not kart or kart.player_id == owner_id:
+				continue  # can't hit your own oil
+			if kart.is_spinning_out:
+				continue  # already spinning
+			var dist = Vector2(kart.global_position.x - oil_pos.x, kart.global_position.z - oil_pos.z).length()
+			if dist < 3.5:
+				kart.start_spinout()
 
 
 func _create_kart(id: int, color: Color) -> Node3D:
@@ -325,7 +367,6 @@ func _build_walls() -> void:
 	var wall_mat = StandardMaterial3D.new()
 	wall_mat.albedo_color = Color(0.35, 0.35, 0.38)
 	wall_mat.roughness = 0.9
-
 	var wall_height = 15.0
 	var wall_thickness = 3.0
 	var s = ARENA_SIZE
@@ -347,6 +388,25 @@ func _build_walls() -> void:
 		world_node.add_child(wall)
 
 
+func _build_start_finish_line() -> void:
+	var line_y = get_ground_height(OVAL_RX, 0) + 0.15
+	var line_width = ROAD_WIDTH + 4.0
+	var checks = 8
+	var check_w = line_width / checks
+
+	for i in range(checks):
+		var checker = MeshInstance3D.new()
+		var box = BoxMesh.new()
+		box.size = Vector3(check_w * 0.95, 0.05, 2.0)
+		checker.mesh = box
+		var mat = StandardMaterial3D.new()
+		mat.albedo_color = Color.WHITE if i % 2 == 0 else Color.BLACK
+		checker.material_override = mat
+		checker.position = Vector3(
+			OVAL_RX - line_width / 2.0 + check_w * (i + 0.5), line_y, 0)
+		world_node.add_child(checker)
+
+
 func get_ground_height(x: float, z: float) -> float:
 	var h = 0.0
 	for hill in HILLS:
@@ -358,38 +418,24 @@ func get_ground_height(x: float, z: float) -> float:
 	return h
 
 
-func _build_start_finish_line() -> void:
-	# Checkered line across the road at the start position (right side of oval, z=0)
-	var line_y = get_ground_height(OVAL_RX, 0) + 0.1
-	var line_width = ROAD_WIDTH + 4.0
-	var line_depth = 2.0
-	var checks = 8
-
-	var check_w = line_width / checks
-	for i in range(checks):
-		var checker = MeshInstance3D.new()
-		var box = BoxMesh.new()
-		box.size = Vector3(check_w * 0.95, 0.05, line_depth)
-		checker.mesh = box
-		var mat = StandardMaterial3D.new()
-		mat.albedo_color = Color.WHITE if i % 2 == 0 else Color.BLACK
-		checker.material_override = mat
-		checker.position = Vector3(
-			OVAL_RX - line_width / 2.0 + check_w * (i + 0.5),
-			line_y,
-			0
-		)
-		world_node.add_child(checker)
+func _on_lap_completed(_pid: int, _lap: int) -> void:
+	pass  # HUD updates in _process
 
 
-func _on_lap_completed(pid: int, lap: int) -> void:
-	if pid < lap_labels.size():
-		lap_labels[pid].text = "Lap %d" % lap
+func _make_speedometer(pos: Vector2) -> Label:
+	var label = Label.new()
+	label.text = "0 km/h"
+	label.add_theme_font_size_override("font_size", 24)
+	label.add_theme_color_override("font_color", Color.WHITE)
+	label.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.7))
+	label.add_theme_constant_override("shadow_offset_x", 2)
+	label.add_theme_constant_override("shadow_offset_y", 2)
+	label.position = pos
+	return label
 
 
 func _make_lap_label(pos: Vector2) -> Label:
 	var label = Label.new()
-	label.name = "LapLabel"
 	label.text = "Lap 0"
 	label.add_theme_font_size_override("font_size", 28)
 	label.add_theme_color_override("font_color", Color(1.0, 0.85, 0.3))
@@ -400,12 +446,11 @@ func _make_lap_label(pos: Vector2) -> Label:
 	return label
 
 
-func _make_speedometer(pos: Vector2) -> Label:
+func _make_oil_label(pos: Vector2) -> Label:
 	var label = Label.new()
-	label.name = "Speedometer"
-	label.text = "0 km/h"
-	label.add_theme_font_size_override("font_size", 24)
-	label.add_theme_color_override("font_color", Color.WHITE)
+	label.text = "Oil: 2"
+	label.add_theme_font_size_override("font_size", 20)
+	label.add_theme_color_override("font_color", Color(0.7, 0.7, 0.8))
 	label.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.7))
 	label.add_theme_constant_override("shadow_offset_x", 2)
 	label.add_theme_constant_override("shadow_offset_y", 2)
