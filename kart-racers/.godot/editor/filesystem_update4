@@ -1,3 +1,4 @@
 res://scripts/main_setup.gd
 res://scripts/player_kart.gd
 res://scripts/menu_ui.gd
+res://scripts/settings.gd
