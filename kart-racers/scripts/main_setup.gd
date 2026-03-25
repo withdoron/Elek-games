@@ -101,36 +101,52 @@ func _build_straight_road() -> void:
 
 
 func _build_hill_terrain() -> void:
-	# Build a visible green mound over the hill area
+	# Smooth hill terrain — tilted strips following the cosine curve
 	var hill_mat = StandardMaterial3D.new()
 	hill_mat.albedo_color = Color(0.3, 0.6, 0.25)
 
-	# Place green boxes along the hill to create a terrain mound
-	var x_extent = 60.0
-	var x_steps = 20
-	var z_steps = 30
+	var strip_width = 120.0  # total X width of terrain
+	var z_steps = 60  # more steps = smoother
 	var z_start = HILL_CENTER_Z - HILL_HALF_WIDTH
 	var z_end = HILL_CENTER_Z + HILL_HALF_WIDTH
 	var z_step_size = (z_end - z_start) / z_steps
-	var x_step_size = (x_extent * 2.0) / x_steps
 
 	for zi in range(z_steps):
-		var z_pos = z_start + (zi + 0.5) * z_step_size
-		var h = get_ground_height(0, z_pos)
-		if h < 0.1:
+		var z_front = z_start + zi * z_step_size
+		var z_back = z_start + (zi + 1) * z_step_size
+		var z_mid = (z_front + z_back) / 2.0
+
+		var h_front = get_ground_height(0, z_front)
+		var h_back = get_ground_height(0, z_back)
+		var h_mid = (h_front + h_back) / 2.0
+
+		if h_mid < 0.05:
 			continue
-		for xi in range(x_steps):
-			var x_pos = -x_extent + (xi + 0.5) * x_step_size
-			# Skip the road area (road is ~10 wide)
-			if abs(x_pos) < 6.0:
-				continue
-			var block = MeshInstance3D.new()
-			var box = BoxMesh.new()
-			box.size = Vector3(x_step_size * 1.02, h, z_step_size * 1.02)
-			block.mesh = box
-			block.material_override = hill_mat
-			block.position = Vector3(x_pos, h / 2.0, z_pos)
-			add_child(block)
+
+		# Slope angle so the strip tilts with the hill
+		var slope = atan2(h_front - h_back, z_step_size)
+		# Actual strip length along the slope
+		var strip_len = z_step_size / cos(slope) if cos(slope) > 0.01 else z_step_size
+
+		# Left side of hill (skip road gap)
+		var left_strip = MeshInstance3D.new()
+		var left_box = BoxMesh.new()
+		left_box.size = Vector3((strip_width / 2.0) - 5.5, 0.05, strip_len * 1.01)
+		left_strip.mesh = left_box
+		left_strip.material_override = hill_mat
+		left_strip.position = Vector3(-(strip_width / 4.0) - 2.75, h_mid, z_mid)
+		left_strip.rotation.x = slope
+		add_child(left_strip)
+
+		# Right side of hill (skip road gap)
+		var right_strip = MeshInstance3D.new()
+		var right_box = BoxMesh.new()
+		right_box.size = Vector3((strip_width / 2.0) - 5.5, 0.05, strip_len * 1.01)
+		right_strip.mesh = right_box
+		right_strip.material_override = hill_mat
+		right_strip.position = Vector3((strip_width / 4.0) + 2.75, h_mid, z_mid)
+		right_strip.rotation.x = slope
+		add_child(right_strip)
 
 
 func get_ground_height(_x: float, z: float) -> float:
