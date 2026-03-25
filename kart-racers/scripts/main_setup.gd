@@ -16,16 +16,16 @@ func _ready() -> void:
 
 func _process(_delta: float) -> void:
 	if kart and speedometer and not get_tree().paused:
-		var spd := abs(kart.speed)
+		var spd = abs(kart.speed)
 		speedometer.text = "%d km/h" % int(spd * 3.6)
 
 
 func _build_world() -> void:
 	# --- Sky ---
-	var env := WorldEnvironment.new()
-	var environment := Environment.new()
-	var sky := Sky.new()
-	var sky_mat := ProceduralSkyMaterial.new()
+	var env = WorldEnvironment.new()
+	var environment = Environment.new()
+	var sky = Sky.new()
+	var sky_mat = ProceduralSkyMaterial.new()
 	sky_mat.sky_top_color = Color(0.35, 0.55, 0.9)
 	sky_mat.sky_horizon_color = Color(0.65, 0.75, 0.9)
 	sky_mat.ground_bottom_color = Color(0.3, 0.25, 0.2)
@@ -39,18 +39,18 @@ func _build_world() -> void:
 	add_child(env)
 
 	# --- Sun ---
-	var sun := DirectionalLight3D.new()
+	var sun = DirectionalLight3D.new()
 	sun.rotation_degrees = Vector3(-45, 30, 0)
 	sun.light_energy = 1.2
 	sun.shadow_enabled = true
 	add_child(sun)
 
 	# --- Grass ground ---
-	var grass := MeshInstance3D.new()
-	var grass_mesh := PlaneMesh.new()
+	var grass = MeshInstance3D.new()
+	var grass_mesh = PlaneMesh.new()
 	grass_mesh.size = Vector2(500, 500)
 	grass.mesh = grass_mesh
-	var grass_mat := StandardMaterial3D.new()
+	var grass_mat = StandardMaterial3D.new()
 	grass_mat.albedo_color = Color(0.25, 0.55, 0.2)
 	grass.material_override = grass_mat
 	add_child(grass)
@@ -66,10 +66,10 @@ func _build_world() -> void:
 
 func _build_figure_eight_road() -> void:
 	# Two circular loops that cross at the origin
-	var road_width := 8.0
-	var loop_radius := 30.0
-	var segments := 48
-	var road_mat := StandardMaterial3D.new()
+	var road_width = 8.0
+	var loop_radius = 30.0
+	var segments = 48
+	var road_mat = StandardMaterial3D.new()
 	road_mat.albedo_color = Color(0.45, 0.35, 0.22)
 
 	# Left loop center and right loop center
@@ -77,31 +77,31 @@ func _build_figure_eight_road() -> void:
 
 	for center: Vector3 in centers:
 		for i in range(segments):
-			var angle := (float(i) / segments) * TAU
-			var next_angle := (float(i + 1) / segments) * TAU
-			var mid_angle := (angle + next_angle) / 2.0
+			var angle = (float(i) / segments) * TAU
+			var next_angle = (float(i + 1) / segments) * TAU
+			var mid_angle = (angle + next_angle) / 2.0
 
 			var pos: Vector3 = center + Vector3(cos(mid_angle) * loop_radius, 0, sin(mid_angle) * loop_radius)
 			var dir: Vector3 = Vector3(-sin(mid_angle), 0, cos(mid_angle))
 
 			# Road segment
-			var segment := MeshInstance3D.new()
-			var box := BoxMesh.new()
-			var seg_length := (TAU / segments) * loop_radius * 1.05
+			var segment = MeshInstance3D.new()
+			var box = BoxMesh.new()
+			var seg_length = (TAU / segments) * loop_radius * 1.05
 			box.size = Vector3(road_width, 0.05, seg_length)
 			segment.mesh = box
 			segment.material_override = road_mat
 
 			# Get ground height at segment position
-			var h := _get_ground_height(pos.x, pos.z)
+			var h = _get_ground_height(pos.x, pos.z)
 			segment.position = Vector3(pos.x, h + 0.02, pos.z)
 			segment.rotation.y = atan2(dir.x, dir.z)
 
 			add_child(segment)
 
 	# Crossover patch at center to smooth the intersection
-	var cross := MeshInstance3D.new()
-	var cross_mesh := BoxMesh.new()
+	var cross = MeshInstance3D.new()
+	var cross_mesh = BoxMesh.new()
 	cross_mesh.size = Vector3(road_width * 1.5, 0.05, road_width * 1.5)
 	cross.mesh = cross_mesh
 	cross.material_override = road_mat
@@ -110,22 +110,22 @@ func _build_figure_eight_road() -> void:
 
 
 func _build_hill(pos: Vector3, radius: float, height: float) -> void:
-	var hill := MeshInstance3D.new()
-	var sphere := SphereMesh.new()
+	var hill = MeshInstance3D.new()
+	var sphere = SphereMesh.new()
 	sphere.radius = radius
 	sphere.height = radius  # half-sphere effect
 	hill.mesh = sphere
-	var mat := StandardMaterial3D.new()
+	var mat = StandardMaterial3D.new()
 	mat.albedo_color = Color(0.3, 0.6, 0.25)
 	hill.material_override = mat
-	var base_h := _get_ground_height(pos.x, pos.z)
+	var base_h = _get_ground_height(pos.x, pos.z)
 	hill.position = Vector3(pos.x, base_h - radius + height, pos.z)
 	add_child(hill)
 
 
 func _get_ground_height(x: float, z: float) -> float:
 	# Must match player_kart.gd
-	var h := 0.0
+	var h = 0.0
 	h += sin(x * 0.02) * 1.5
 	h += sin(z * 0.03) * 1.0
 	h += sin(x * 0.05 + z * 0.04) * 0.5
@@ -137,15 +137,15 @@ func _spawn_kart() -> void:
 	kart.set_script(preload("res://scripts/player_kart.gd"))
 	kart.name = "PlayerKart"
 	# Start on the right side of the figure-8
-	var start_x := 18.0
-	var start_z := 0.0
-	var start_y := _get_ground_height(start_x, start_z)
+	var start_x = 18.0
+	var start_z = 0.0
+	var start_y = _get_ground_height(start_x, start_z)
 	kart.position = Vector3(start_x, start_y, start_z)
 	add_child(kart)
 
 
 func _create_speedometer() -> void:
-	var canvas := CanvasLayer.new()
+	var canvas = CanvasLayer.new()
 	canvas.name = "HUD"
 	add_child(canvas)
 
@@ -162,7 +162,7 @@ func _create_speedometer() -> void:
 
 
 func _create_menu() -> void:
-	var canvas := CanvasLayer.new()
+	var canvas = CanvasLayer.new()
 	canvas.name = "MenuLayer"
 	canvas.layer = 10
 	canvas.process_mode = Node.PROCESS_MODE_ALWAYS

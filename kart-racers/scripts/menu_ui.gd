@@ -6,7 +6,7 @@ var main_menu: VBoxContainer
 var settings_screen: Control
 var sliders: Dictionary = {}
 
-const BG_COLOR := Color(0.1, 0.1, 0.15, 0.95)
+const BG_COLOR := Color(0.1, 0.1, 0.15, 1.0)
 const GOLD := Color(1.0, 0.85, 0.3)
 const BUTTON_BG := Color(0.18, 0.18, 0.25)
 const BUTTON_HOVER := Color(0.25, 0.25, 0.35)
