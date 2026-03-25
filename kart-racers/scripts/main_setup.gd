@@ -15,7 +15,6 @@ func _ready() -> void:
 	_spawn_kart()
 	_create_speedometer()
 	_create_menu()
-	# Start paused — menu shows first
 	get_tree().paused = true
 
 
@@ -50,94 +49,118 @@ func _build_world() -> void:
 	sun.shadow_enabled = true
 	add_child(sun)
 
-	# --- Grass ground (visual only) ---
-	var grass = MeshInstance3D.new()
-	var grass_mesh = PlaneMesh.new()
-	grass_mesh.size = Vector2(500, 500)
-	grass.mesh = grass_mesh
-	var grass_mat = StandardMaterial3D.new()
-	grass_mat.albedo_color = Color(0.25, 0.55, 0.2)
-	grass.material_override = grass_mat
-	add_child(grass)
+	# --- Ground terrain (one smooth mesh covering everything) ---
+	_build_terrain_mesh()
 
-	# --- Straight road with hill ---
-	_build_straight_road()
-
-	# --- Hill terrain mesh (green mound matching the ground height) ---
-	_build_hill_terrain()
+	# --- Road (smooth mesh on top of terrain) ---
+	_build_road_mesh()
 
 
-func _build_straight_road() -> void:
-	var road_width = 10.0
-	var road_start_z = 80.0
-	var road_end_z = -130.0
-	var segments = 300
-	var road_mat = StandardMaterial3D.new()
-	road_mat.albedo_color = Color(0.45, 0.35, 0.22)
+func _build_terrain_mesh() -> void:
+	# Build a single smooth mesh for the entire ground using SurfaceTool
+	var st = SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 
-	var total_length = road_start_z - road_end_z
-	var seg_length = total_length / segments
+	var mat = StandardMaterial3D.new()
+	mat.albedo_color = Color(0.25, 0.55, 0.2)
+	st.set_material(mat)
 
-	for i in range(segments):
-		var z_front = road_start_z - i * seg_length
-		var z_back = road_start_z - (i + 1) * seg_length
-		var z_mid = (z_front + z_back) / 2.0
+	var x_min = -150.0
+	var x_max = 150.0
+	var z_min = -130.0
+	var z_max = 80.0
+	var x_steps = 60
+	var z_steps = 80
 
-		var h_front = get_ground_height(0, z_front)
-		var h_back = get_ground_height(0, z_back)
-		var h_mid = (h_front + h_back) / 2.0
-
-		var slope_angle = atan2(h_front - h_back, seg_length)
-
-		# 10-deep slab, 3x Z overlap, raised 0.5 above green
-		var segment = MeshInstance3D.new()
-		var box = BoxMesh.new()
-		box.size = Vector3(road_width, 10.0, seg_length * 3.0)
-		segment.mesh = box
-		segment.material_override = road_mat
-		segment.position = Vector3(0, h_mid - 4.5, z_mid)
-		segment.rotation.x = slope_angle
-		add_child(segment)
-
-
-func _build_hill_terrain() -> void:
-	# Continuous green surface — no gap for road, road sits on top
-	var hill_mat = StandardMaterial3D.new()
-	hill_mat.albedo_color = Color(0.3, 0.6, 0.25)
-
-	var full_width = 200.0
-	var z_steps = 150
-	var z_start = HILL_CENTER_Z - HILL_HALF_WIDTH
-	var z_end = HILL_CENTER_Z + HILL_HALF_WIDTH
-	var z_step_size = (z_end - z_start) / z_steps
+	var x_step = (x_max - x_min) / x_steps
+	var z_step = (z_max - z_min) / z_steps
 
 	for zi in range(z_steps):
-		var z_front = z_start + zi * z_step_size
-		var z_back = z_start + (zi + 1) * z_step_size
-		var z_mid = (z_front + z_back) / 2.0
+		for xi in range(x_steps):
+			var x0 = x_min + xi * x_step
+			var x1 = x0 + x_step
+			var z0 = z_min + zi * z_step
+			var z1 = z0 + z_step
 
-		var h_front = get_ground_height(0, z_front)
-		var h_back = get_ground_height(0, z_back)
-		var h_mid = (h_front + h_back) / 2.0
+			var y00 = get_ground_height(x0, z0)
+			var y10 = get_ground_height(x1, z0)
+			var y01 = get_ground_height(x0, z1)
+			var y11 = get_ground_height(x1, z1)
 
-		if h_mid < 0.05:
-			continue
+			var v00 = Vector3(x0, y00, z0)
+			var v10 = Vector3(x1, y10, z0)
+			var v01 = Vector3(x0, y01, z1)
+			var v11 = Vector3(x1, y11, z1)
 
-		var slope = atan2(h_front - h_back, z_step_size)
+			# Triangle 1
+			st.set_normal(_calc_normal(v00, v10, v01))
+			st.add_vertex(v00)
+			st.add_vertex(v10)
+			st.add_vertex(v01)
 
-		# 10-deep slab, 3x Z overlap — road draws on top of this
-		var strip = MeshInstance3D.new()
-		var box = BoxMesh.new()
-		box.size = Vector3(full_width, 10.0, z_step_size * 3.0)
-		strip.mesh = box
-		strip.material_override = hill_mat
-		strip.position = Vector3(0, h_mid - 5.0, z_mid)
-		strip.rotation.x = slope
-		add_child(strip)
+			# Triangle 2
+			st.set_normal(_calc_normal(v10, v11, v01))
+			st.add_vertex(v10)
+			st.add_vertex(v11)
+			st.add_vertex(v01)
+
+	var mesh_inst = MeshInstance3D.new()
+	mesh_inst.mesh = st.commit()
+	mesh_inst.name = "Terrain"
+	add_child(mesh_inst)
+
+
+func _build_road_mesh() -> void:
+	# Build a smooth road strip using SurfaceTool — sits slightly above terrain
+	var st = SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+
+	var mat = StandardMaterial3D.new()
+	mat.albedo_color = Color(0.45, 0.35, 0.22)
+	st.set_material(mat)
+
+	var road_half_w = 5.0
+	var z_min = -130.0
+	var z_max = 80.0
+	var z_steps = 200
+	var z_step = (z_max - z_min) / z_steps
+	var road_lift = 0.05  # just enough above terrain to prevent z-fighting
+
+	for zi in range(z_steps):
+		var z0 = z_min + zi * z_step
+		var z1 = z0 + z_step
+
+		var y0 = get_ground_height(0, z0) + road_lift
+		var y1 = get_ground_height(0, z1) + road_lift
+
+		var v_l0 = Vector3(-road_half_w, y0, z0)
+		var v_r0 = Vector3(road_half_w, y0, z0)
+		var v_l1 = Vector3(-road_half_w, y1, z1)
+		var v_r1 = Vector3(road_half_w, y1, z1)
+
+		# Triangle 1
+		st.set_normal(_calc_normal(v_l0, v_r0, v_l1))
+		st.add_vertex(v_l0)
+		st.add_vertex(v_r0)
+		st.add_vertex(v_l1)
+
+		# Triangle 2
+		st.set_normal(_calc_normal(v_r0, v_r1, v_l1))
+		st.add_vertex(v_r0)
+		st.add_vertex(v_r1)
+		st.add_vertex(v_l1)
+
+	var mesh_inst = MeshInstance3D.new()
+	mesh_inst.mesh = st.commit()
+	mesh_inst.name = "Road"
+	add_child(mesh_inst)
+
+
+func _calc_normal(a: Vector3, b: Vector3, c: Vector3) -> Vector3:
+	return (b - a).cross(c - a).normalized()
 
 
 func get_ground_height(_x: float, z: float) -> float:
-	# Smooth hill using cosine — flat everywhere except the hill zone
 	var dist = abs(z - HILL_CENTER_Z)
 	if dist >= HILL_HALF_WIDTH:
 		return 0.0
@@ -148,7 +171,6 @@ func _spawn_kart() -> void:
 	kart = Node3D.new()
 	kart.set_script(preload("res://scripts/player_kart.gd"))
 	kart.name = "PlayerKart"
-	# Start on the flat approach, facing the hill (-Z direction)
 	var start_z = 50.0
 	kart.position = Vector3(0, 0, start_z)
 	add_child(kart)
