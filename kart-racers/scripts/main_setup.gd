@@ -71,7 +71,7 @@ func _build_straight_road() -> void:
 	var road_width = 10.0
 	var road_start_z = 80.0
 	var road_end_z = -130.0
-	var segments = 80
+	var segments = 160  # more segments = smoother hill
 	var road_mat = StandardMaterial3D.new()
 	road_mat.albedo_color = Color(0.45, 0.35, 0.22)
 
@@ -79,9 +79,9 @@ func _build_straight_road() -> void:
 	var seg_length = total_length / segments
 
 	for i in range(segments):
-		var z_pos = road_start_z - (i + 0.5) * seg_length
 		var z_front = road_start_z - i * seg_length
 		var z_back = road_start_z - (i + 1) * seg_length
+		var z_mid = (z_front + z_back) / 2.0
 
 		var h_front = get_ground_height(0, z_front)
 		var h_back = get_ground_height(0, z_back)
@@ -89,13 +89,14 @@ func _build_straight_road() -> void:
 
 		# Tilt the segment to follow the slope
 		var slope_angle = atan2(h_front - h_back, seg_length)
+		var strip_len = seg_length / cos(slope_angle) if cos(slope_angle) > 0.01 else seg_length
 
 		var segment = MeshInstance3D.new()
 		var box = BoxMesh.new()
-		box.size = Vector3(road_width, 0.05, seg_length * 1.02)
+		box.size = Vector3(road_width, 0.05, strip_len * 1.01)
 		segment.mesh = box
 		segment.material_override = road_mat
-		segment.position = Vector3(0, h_mid + 0.02, z_pos)
+		segment.position = Vector3(0, h_mid + 0.02, z_mid)
 		segment.rotation.x = slope_angle
 		add_child(segment)
 
@@ -161,10 +162,9 @@ func _spawn_kart() -> void:
 	kart = Node3D.new()
 	kart.set_script(preload("res://scripts/player_kart.gd"))
 	kart.name = "PlayerKart"
-	# Start on the flat approach, facing -Z (toward the hill)
+	# Start on the flat approach, facing the hill (-Z direction)
 	var start_z = 50.0
 	kart.position = Vector3(0, 0, start_z)
-	kart.rotation.y = PI  # face -Z direction
 	add_child(kart)
 
 
