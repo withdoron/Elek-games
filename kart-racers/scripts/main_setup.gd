@@ -1,6 +1,6 @@
 extends Node3D
 
-var kart: CharacterBody3D
+var kart: Node3D
 var speedometer: Label
 var menu_ui: Control
 
@@ -45,10 +45,7 @@ func _build_world() -> void:
 	sun.shadow_enabled = true
 	add_child(sun)
 
-	# --- Grass ground with collision ---
-	var ground_body = StaticBody3D.new()
-	ground_body.name = "Ground"
-
+	# --- Grass ground (visual only) ---
 	var grass = MeshInstance3D.new()
 	var grass_mesh = PlaneMesh.new()
 	grass_mesh.size = Vector2(500, 500)
@@ -56,14 +53,7 @@ func _build_world() -> void:
 	var grass_mat = StandardMaterial3D.new()
 	grass_mat.albedo_color = Color(0.25, 0.55, 0.2)
 	grass.material_override = grass_mat
-	ground_body.add_child(grass)
-
-	var ground_col = CollisionShape3D.new()
-	var ground_shape = WorldBoundaryShape3D.new()
-	ground_col.shape = ground_shape
-	ground_body.add_child(ground_col)
-
-	add_child(ground_body)
+	add_child(grass)
 
 	# --- Figure-8 dirt road ---
 	_build_figure_eight_road()
@@ -97,54 +87,31 @@ func _build_figure_eight_road() -> void:
 			var seg_length = (TAU / segments) * loop_radius * 1.05
 			var h = _get_ground_height(pos.x, pos.z)
 
-			# Road segment with collision
-			var road_body = StaticBody3D.new()
-			road_body.position = Vector3(pos.x, h + 0.02, pos.z)
-			road_body.rotation.y = atan2(dir.x, dir.z)
-
+			# Road segment (visual only)
 			var segment = MeshInstance3D.new()
 			var box = BoxMesh.new()
 			box.size = Vector3(road_width, 0.05, seg_length)
 			segment.mesh = box
 			segment.material_override = road_mat
-			road_body.add_child(segment)
+			segment.position = Vector3(pos.x, h + 0.02, pos.z)
+			segment.rotation.y = atan2(dir.x, dir.z)
+			add_child(segment)
 
-			var road_col = CollisionShape3D.new()
-			var road_shape = BoxShape3D.new()
-			road_shape.size = Vector3(road_width, 0.05, seg_length)
-			road_col.shape = road_shape
-			road_body.add_child(road_col)
-
-			add_child(road_body)
-
-	# Crossover patch at center to smooth the intersection
-	var cross_body = StaticBody3D.new()
-	cross_body.position = Vector3(0, _get_ground_height(0, 0) + 0.02, 0)
-
+	# Crossover patch at center
 	var cross = MeshInstance3D.new()
 	var cross_mesh = BoxMesh.new()
 	cross_mesh.size = Vector3(road_width * 1.5, 0.05, road_width * 1.5)
 	cross.mesh = cross_mesh
 	cross.material_override = road_mat
-	cross_body.add_child(cross)
-
-	var cross_col = CollisionShape3D.new()
-	var cross_shape = BoxShape3D.new()
-	cross_shape.size = Vector3(road_width * 1.5, 0.05, road_width * 1.5)
-	cross_col.shape = cross_shape
-	cross_body.add_child(cross_col)
-
-	add_child(cross_body)
+	cross.position = Vector3(0, _get_ground_height(0, 0) + 0.02, 0)
+	add_child(cross)
 
 
 func _build_hill(pos: Vector3, radius: float, height: float) -> void:
 	var base_h = _get_ground_height(pos.x, pos.z)
 	var hill_y = base_h - radius + height
 
-	# Hill with collision
-	var hill_body = StaticBody3D.new()
-	hill_body.position = Vector3(pos.x, hill_y, pos.z)
-
+	# Hill (visual only)
 	var hill = MeshInstance3D.new()
 	var sphere = SphereMesh.new()
 	sphere.radius = radius
@@ -153,15 +120,8 @@ func _build_hill(pos: Vector3, radius: float, height: float) -> void:
 	var mat = StandardMaterial3D.new()
 	mat.albedo_color = Color(0.3, 0.6, 0.25)
 	hill.material_override = mat
-	hill_body.add_child(hill)
-
-	var hill_col = CollisionShape3D.new()
-	var hill_shape = SphereShape3D.new()
-	hill_shape.radius = radius
-	hill_col.shape = hill_shape
-	hill_body.add_child(hill_col)
-
-	add_child(hill_body)
+	hill.position = Vector3(pos.x, hill_y, pos.z)
+	add_child(hill)
 
 
 func _get_ground_height(x: float, z: float) -> float:
@@ -174,13 +134,13 @@ func _get_ground_height(x: float, z: float) -> float:
 
 
 func _spawn_kart() -> void:
-	kart = CharacterBody3D.new()
+	kart = Node3D.new()
 	kart.set_script(preload("res://scripts/player_kart.gd"))
 	kart.name = "PlayerKart"
 	# Start on the right side of the figure-8
 	var start_x = 18.0
 	var start_z = 0.0
-	var start_y = _get_ground_height(start_x, start_z) + 0.5
+	var start_y = _get_ground_height(start_x, start_z) + 0.8
 	kart.position = Vector3(start_x, start_y, start_z)
 	add_child(kart)
 

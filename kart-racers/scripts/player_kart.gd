@@ -1,8 +1,9 @@
-extends CharacterBody3D
+extends Node3D
 
 var speed: float = 0.0
 var steer_angle: float = 0.0
 var kart_tilt: float = 0.0
+var move_velocity: Vector3 = Vector3.ZERO  # manual velocity tracking for drift
 
 # Ground clearance — bottom of big wheels
 const GROUND_OFFSET = 0.8
@@ -13,20 +14,11 @@ var truck_body: MeshInstance3D  # main body mesh for future color changes
 var front_pivots: Array = []  # [FL_pivot, FR_pivot] — rotate Y for steering
 var wheel_meshes: Array = []  # [FL, FR, RL, RR] — rotate X for spin
 var camera: Camera3D
-var ground_ray: RayCast3D
 
 
 func _ready() -> void:
 	_build_truck()
 	_setup_camera()
-	_setup_ground_ray()
-
-
-func _setup_ground_ray() -> void:
-	ground_ray = RayCast3D.new()
-	ground_ray.target_position = Vector3(0, -10, 0)
-	ground_ray.enabled = true
-	add_child(ground_ray)
 
 
 func _physics_process(delta: float) -> void:
@@ -98,34 +90,16 @@ func _physics_process(delta: float) -> void:
 
 	# --- Drift / lateral friction ---
 	var forward_dir = -transform.basis.z.normalized()
-	var current_vel = Vector3(velocity.x, 0, velocity.z)
-	var forward_speed_component = current_vel.dot(forward_dir)
-	var lateral_component = current_vel - forward_dir * forward_speed_component
-	var drifted_vel = forward_dir * speed + lateral_component * s.drift_factor
-	velocity.x = drifted_vel.x
-	velocity.z = drifted_vel.z
+	var forward_vel = forward_dir * speed
+	var lateral = move_velocity - forward_dir * move_velocity.dot(forward_dir)
+	move_velocity = forward_vel + lateral * s.drift_factor
+	move_velocity.y = 0
 
-	# --- Gravity (heavy monster truck) ---
-	var grav = 60.0
-	velocity.y -= grav * delta
+	# --- Move manually (no move_and_slide, no physics fighting) ---
+	global_position += move_velocity * delta
 
-	# Kill any upward velocity — truck stays planted
-	if velocity.y > 0:
-		velocity.y = 0
-
-	move_and_slide()
-
-	# --- Aggressive ground clamp after move_and_slide ---
-	# Find the actual ground height using raycast or fallback
-	var target_y = _get_ground_height(global_position.x, global_position.z) + GROUND_OFFSET
-	if ground_ray and ground_ray.is_colliding():
-		var ray_y = ground_ray.get_collision_point().y + GROUND_OFFSET
-		target_y = max(target_y, ray_y)
-
-	# ALWAYS snap to ground — never float more than 1 unit above
-	if global_position.y < target_y or global_position.y > target_y + 1.0:
-		global_position.y = target_y
-		velocity.y = 0
+	# --- ALWAYS snap Y to ground. Every frame. No exceptions. ---
+	global_position.y = _get_ground_height(global_position.x, global_position.z) + GROUND_OFFSET
 
 	# --- Visuals ---
 	_update_visuals(delta, steer_input)
@@ -272,13 +246,7 @@ func _build_truck() -> void:
 		exhaust.position = Vector3(x_pos, 1.8, 1.5)
 		body_mesh.add_child(exhaust)
 
-	# --- 9. COLLISION SHAPE ---
-	var col = CollisionShape3D.new()
-	var box_shape = BoxShape3D.new()
-	box_shape.size = Vector3(2.2, 1.5, 3.5)
-	col.shape = box_shape
-	col.position = Vector3(0, 1.5, 0)
-	add_child(col)
+	# No collision shape needed — we use math-based ground clamping
 
 
 func _setup_camera() -> void:
