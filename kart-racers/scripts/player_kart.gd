@@ -2,27 +2,36 @@ extends CharacterBody3D
 
 var speed: float = 0.0
 var steer_angle: float = 0.0
-var visual_wheel_angle: float = 0.0
 var kart_tilt: float = 0.0
 
 # Node references
 var body_mesh: Node3D
-var wheels: Array = []  # [FL, FR, RL, RR]
+var front_pivots: Array = []  # [FL_pivot, FR_pivot] — rotate Y for steering
+var wheel_meshes: Array = []  # [FL, FR, RL, RR] — rotate X for spin
 var camera: Camera3D
+var ground_ray: RayCast3D
 
 
 func _ready() -> void:
 	_build_kart()
 	_setup_camera()
+	_setup_ground_ray()
+
+
+func _setup_ground_ray() -> void:
+	ground_ray = RayCast3D.new()
+	ground_ray.target_position = Vector3(0, -10, 0)
+	ground_ray.enabled = true
+	add_child(ground_ray)
 
 
 func _physics_process(delta: float) -> void:
-	var s := Settings  # shorthand, reads every frame
+	var s = Settings  # shorthand, reads every frame
 
 	# --- Input ---
-	var throttle := 0.0
-	var brake_input := 0.0
-	var steer_input := 0.0
+	var throttle = 0.0
+	var brake_input = 0.0
+	var steer_input = 0.0
 
 	# Keyboard
 	if Input.is_action_pressed("accelerate"):
@@ -31,8 +40,8 @@ func _physics_process(delta: float) -> void:
 		brake_input = 1.0
 
 	# Gamepad analog triggers (device 0)
-	var rt := Input.get_joy_axis(0, JOY_AXIS_TRIGGER_RIGHT)
-	var lt := Input.get_joy_axis(0, JOY_AXIS_TRIGGER_LEFT)
+	var rt = Input.get_joy_axis(0, JOY_AXIS_TRIGGER_RIGHT)
+	var lt = Input.get_joy_axis(0, JOY_AXIS_TRIGGER_LEFT)
 	if rt > s.deadzone:
 		throttle = max(throttle, rt)
 	if lt > s.deadzone:
@@ -45,7 +54,7 @@ func _physics_process(delta: float) -> void:
 		steer_input += 1.0
 
 	# Steering: gamepad left stick
-	var stick_x := Input.get_joy_axis(0, JOY_AXIS_LEFT_X)
+	var stick_x = Input.get_joy_axis(0, JOY_AXIS_LEFT_X)
 	if abs(stick_x) > s.deadzone:
 		steer_input = clamp(steer_input + stick_x * s.stick_sensitivity, -1.0, 1.0)
 
@@ -71,7 +80,7 @@ func _physics_process(delta: float) -> void:
 	var turn_reduction = lerp(1.0, s.turn_speed_factor, speed_ratio)
 
 	if abs(speed) > 0.5:
-		var direction_mult := 1.0 if speed >= 0.0 else -1.0
+		var direction_mult = 1.0 if speed >= 0.0 else -1.0
 		var target_steer = steer_input * s.turn_speed * turn_reduction * direction_mult
 		steer_angle = lerp(steer_angle, target_steer, s.drift_turn_boost * delta)
 	else:
@@ -84,59 +93,71 @@ func _physics_process(delta: float) -> void:
 	rotate_y(-steer_angle * delta)
 
 	# --- Drift / lateral friction ---
-	var forward_dir := -transform.basis.z.normalized()
-	var current_vel := Vector3(velocity.x, 0, velocity.z)
-	var forward_speed_component := current_vel.dot(forward_dir)
-	var lateral_component := current_vel - forward_dir * forward_speed_component
-	var drifted_vel := forward_dir * speed + lateral_component * s.drift_factor
+	var forward_dir = -transform.basis.z.normalized()
+	var current_vel = Vector3(velocity.x, 0, velocity.z)
+	var forward_speed_component = current_vel.dot(forward_dir)
+	var lateral_component = current_vel - forward_dir * forward_speed_component
+	var drifted_vel = forward_dir * speed + lateral_component * s.drift_factor
 	velocity.x = drifted_vel.x
 	velocity.z = drifted_vel.z
 
-	# --- Gravity and ground snap ---
-	var ground_y := _get_ground_height(global_position.x, global_position.z)
-	if global_position.y <= ground_y + 0.05:
-		global_position.y = ground_y
-		velocity.y = 0.0
+	# --- Gravity and ground detection ---
+	var ground_y = _get_ground_height(global_position.x, global_position.z)
+	var on_ground = global_position.y <= ground_y + 0.6
+
+	if on_ground:
+		velocity.y = 0
+		global_position.y = ground_y + 0.5
 	else:
 		velocity.y -= s.gravity * delta
 
 	move_and_slide()
 
-	# Snap to ground after move
-	ground_y = _get_ground_height(global_position.x, global_position.z)
-	if global_position.y < ground_y:
-		global_position.y = ground_y
-		velocity.y = 0.0
+	# --- Hard ground clamp after move_and_slide ---
+	# Raycast method: detect actual collision surfaces
+	if ground_ray and ground_ray.is_colliding():
+		var ground_point = ground_ray.get_collision_point()
+		if global_position.y < ground_point.y + 0.5:
+			global_position.y = ground_point.y + 0.5
+			if velocity.y < 0:
+				velocity.y = 0
+	else:
+		# Fallback: sine wave height function
+		ground_y = _get_ground_height(global_position.x, global_position.z)
+		var min_y = ground_y + 0.5
+		if global_position.y < min_y:
+			global_position.y = min_y
+			velocity.y = max(velocity.y, 0)
 
 	# --- Visuals ---
-	_update_visuals(delta)
+	_update_visuals(delta, steer_input)
 
 
 func _get_ground_height(x: float, z: float) -> float:
 	# Gentle rolling hills using sine waves
-	var h := 0.0
+	var h = 0.0
 	h += sin(x * 0.02) * 1.5
 	h += sin(z * 0.03) * 1.0
 	h += sin(x * 0.05 + z * 0.04) * 0.5
 	return h
 
 
-func _update_visuals(delta: float) -> void:
-	# Wheel steering visual
-	var target_visual = clamp(steer_angle * 0.4, -0.6, 0.6)
-	visual_wheel_angle = lerp(visual_wheel_angle, target_visual, 10.0 * delta)
+func _update_visuals(delta: float, steer_input: float) -> void:
+	# --- Front wheel steering ---
+	# Pivot nodes rotate on Y for steering visual
+	var visual_steer = steer_input * 0.5  # Max ~28 degrees
+	for pivot in front_pivots:
+		if pivot:
+			pivot.rotation.y = lerp(pivot.rotation.y, visual_steer, delta * 10.0)
 
-	# Spin all wheels based on speed
-	var spin_rate := speed * 2.0 * delta
-	for i in range(4):
-		if wheels[i]:
-			wheels[i].rotate_x(spin_rate)
-			# Front wheels turn with steering
-			if i < 2:
-				wheels[i].rotation.y = visual_wheel_angle
+	# --- Spin all wheels based on speed ---
+	var spin_rate = speed * 2.0 * delta
+	for i in range(wheel_meshes.size()):
+		if wheel_meshes[i]:
+			wheel_meshes[i].rotate_x(spin_rate)
 
-	# Kart body tilt into turns
-	var target_tilt := -steer_angle * 0.05
+	# --- Kart body tilt into turns ---
+	var target_tilt = -steer_angle * 0.05
 	kart_tilt = lerp(kart_tilt, target_tilt, 5.0 * delta)
 	if body_mesh:
 		body_mesh.rotation.z = kart_tilt
@@ -148,42 +169,61 @@ func _build_kart() -> void:
 	add_child(body_mesh)
 
 	# Main body - blue
-	var body_box := _make_box(Vector3(2.0, 0.7, 3.0), Color(0.2, 0.35, 0.8))
+	var body_box = _make_box(Vector3(2.0, 0.7, 3.0), Color(0.2, 0.35, 0.8))
 	body_box.position = Vector3(0, 0.55, 0)
 	body_mesh.add_child(body_box)
 
 	# Cockpit/seat - white
-	var seat := _make_box(Vector3(1.2, 0.5, 1.0), Color(0.9, 0.9, 0.9))
+	var seat = _make_box(Vector3(1.2, 0.5, 1.0), Color(0.9, 0.9, 0.9))
 	seat.position = Vector3(0, 1.05, 0.2)
 	body_mesh.add_child(seat)
 
 	# Nose wedge - darker blue
-	var nose := _make_box(Vector3(1.6, 0.4, 0.8), Color(0.15, 0.25, 0.6))
+	var nose = _make_box(Vector3(1.6, 0.4, 0.8), Color(0.15, 0.25, 0.6))
 	nose.position = Vector3(0, 0.45, -1.4)
 	body_mesh.add_child(nose)
 
 	# Rear bumper
-	var bumper := _make_box(Vector3(2.2, 0.35, 0.3), Color(0.3, 0.3, 0.3))
+	var bumper = _make_box(Vector3(2.2, 0.35, 0.3), Color(0.3, 0.3, 0.3))
 	bumper.position = Vector3(0, 0.45, 1.6)
 	body_mesh.add_child(bumper)
 
-	# Wheels
-	var wheel_positions := [
+	# Wheel positions: [FL, FR, RL, RR]
+	var wheel_positions = [
 		Vector3(-1.1, 0.35, -1.0),  # FL
 		Vector3(1.1, 0.35, -1.0),   # FR
 		Vector3(-1.1, 0.35, 1.0),   # RL
 		Vector3(1.1, 0.35, 1.0),    # RR
 	]
-	wheels = []
-	for pos in wheel_positions:
-		var wheel := _make_wheel(0.35, 0.25)
-		wheel.position = pos
-		body_mesh.add_child(wheel)
-		wheels.append(wheel)
+
+	front_pivots = []
+	wheel_meshes = []
+
+	for i in range(4):
+		var is_front = i < 2
+		var wheel = _make_wheel(0.35, 0.25)
+
+		if is_front:
+			# Front wheels: pivot node for steering, wheel mesh as child for spin
+			var pivot = Node3D.new()
+			pivot.name = "WheelPivot_%d" % i
+			pivot.position = wheel_positions[i]
+			body_mesh.add_child(pivot)
+
+			wheel.position = Vector3.ZERO  # local to pivot
+			pivot.add_child(wheel)
+
+			front_pivots.append(pivot)
+			wheel_meshes.append(wheel)
+		else:
+			# Rear wheels: directly on body, only spin
+			wheel.position = wheel_positions[i]
+			body_mesh.add_child(wheel)
+			wheel_meshes.append(wheel)
 
 	# Collision shape
-	var col := CollisionShape3D.new()
-	var box_shape := BoxShape3D.new()
+	var col = CollisionShape3D.new()
+	var box_shape = BoxShape3D.new()
 	box_shape.size = Vector3(2.0, 0.8, 3.0)
 	col.shape = box_shape
 	col.position = Vector3(0, 0.6, 0)
@@ -200,25 +240,25 @@ func _setup_camera() -> void:
 
 
 func _make_box(size: Vector3, color: Color) -> MeshInstance3D:
-	var mesh_inst := MeshInstance3D.new()
-	var box := BoxMesh.new()
+	var mesh_inst = MeshInstance3D.new()
+	var box = BoxMesh.new()
 	box.size = size
 	mesh_inst.mesh = box
-	var mat := StandardMaterial3D.new()
+	var mat = StandardMaterial3D.new()
 	mat.albedo_color = color
 	mesh_inst.material_override = mat
 	return mesh_inst
 
 
 func _make_wheel(radius: float, width: float) -> MeshInstance3D:
-	var mesh_inst := MeshInstance3D.new()
-	var cyl := CylinderMesh.new()
+	var mesh_inst = MeshInstance3D.new()
+	var cyl = CylinderMesh.new()
 	cyl.top_radius = radius
 	cyl.bottom_radius = radius
 	cyl.height = width
 	mesh_inst.mesh = cyl
 	mesh_inst.rotation_degrees = Vector3(0, 0, 90)
-	var mat := StandardMaterial3D.new()
+	var mat = StandardMaterial3D.new()
 	mat.albedo_color = Color(0.15, 0.15, 0.15)
 	mesh_inst.material_override = mat
 	return mesh_inst
