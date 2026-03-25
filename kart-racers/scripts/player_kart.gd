@@ -105,9 +105,15 @@ func _physics_process(delta: float) -> void:
 	_update_visuals(delta, steer_input)
 
 
-func _get_ground_height(_x: float, _z: float) -> float:
-	# Flat ground matching the visual grass plane at y=0
-	return 0.0
+func _get_ground_height(_x: float, z: float) -> float:
+	# Smooth hill using cosine — must match main_setup.gd
+	var hill_center_z = -50.0
+	var hill_half_width = 30.0
+	var hill_height = 12.0
+	var dist = abs(z - hill_center_z)
+	if dist >= hill_half_width:
+		return 0.0
+	return hill_height * 0.5 * (1.0 + cos(PI * dist / hill_half_width))
 
 
 func _update_visuals(delta: float, steer_input: float) -> void:
