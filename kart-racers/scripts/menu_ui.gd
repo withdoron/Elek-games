@@ -44,24 +44,24 @@ func _build_main_menu() -> void:
 
 	main_menu = VBoxContainer.new()
 	main_menu.set_anchors_preset(PRESET_CENTER)
-	main_menu.position = Vector2(640, 260)
-	main_menu.size = Vector2(400, 300)
-	main_menu.pivot_offset = Vector2(200, 150)
+	main_menu.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	main_menu.grow_vertical = Control.GROW_DIRECTION_BOTH
+	main_menu.custom_minimum_size = Vector2(500, 0)
 	main_menu.alignment = BoxContainer.ALIGNMENT_CENTER
-	main_menu.add_theme_constant_override("separation", 20)
+	main_menu.add_theme_constant_override("separation", 24)
 	add_child(main_menu)
 
 	# Kart emoji
 	var emoji := Label.new()
 	emoji.text = "🏎️"
-	emoji.add_theme_font_size_override("font_size", 64)
+	emoji.add_theme_font_size_override("font_size", 80)
 	emoji.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	main_menu.add_child(emoji)
 
 	# Title
 	var title := Label.new()
 	title.text = "ELEK'S KART RACERS"
-	title.add_theme_font_size_override("font_size", 36)
+	title.add_theme_font_size_override("font_size", 48)
 	title.add_theme_color_override("font_color", GOLD)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	main_menu.add_child(title)
@@ -69,14 +69,14 @@ func _build_main_menu() -> void:
 	# Subtitle
 	var subtitle := Label.new()
 	subtitle.text = "A racing game by Elek"
-	subtitle.add_theme_font_size_override("font_size", 16)
+	subtitle.add_theme_font_size_override("font_size", 20)
 	subtitle.add_theme_color_override("font_color", Color(0.7, 0.7, 0.7))
 	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	main_menu.add_child(subtitle)
 
 	# Spacer
 	var spacer := Control.new()
-	spacer.custom_minimum_size = Vector2(0, 20)
+	spacer.custom_minimum_size = Vector2(0, 30)
 	main_menu.add_child(spacer)
 
 	# DRIVE button
@@ -226,8 +226,8 @@ func _format_value(val: float) -> String:
 func _make_button(text: String, border_color: Color) -> Button:
 	var btn := Button.new()
 	btn.text = text
-	btn.custom_minimum_size = Vector2(200, 45)
-	btn.add_theme_font_size_override("font_size", 18)
+	btn.custom_minimum_size = Vector2(320, 55)
+	btn.add_theme_font_size_override("font_size", 22)
 
 	var style := StyleBoxFlat.new()
 	style.bg_color = BUTTON_BG
