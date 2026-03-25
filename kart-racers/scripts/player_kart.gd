@@ -253,13 +253,25 @@ func _physics_process(delta: float) -> void:
 		speed = move_toward(speed, surface_max, 5.0 * delta)
 
 	# Slope physics
-	if on_ground and abs(speed) > 0.5:
+	if on_ground:
 		var fwd = -transform.basis.z.normalized()
 		var d = 2.0
 		var h_front = _get_ground_height(global_position.x + fwd.x * d, global_position.z + fwd.z * d)
 		var h_back = _get_ground_height(global_position.x - fwd.x * d, global_position.z - fwd.z * d)
 		var slope = (h_front - h_back) / (d * 2.0)
-		speed -= slope * GRAVITY * 0.3 * delta
+		# Normal slope effect
+		if abs(speed) > 0.5:
+			speed -= slope * GRAVITY * 0.3 * delta
+
+		# Mud + slope = lateral sliding downhill
+		if in_mud and abs(slope) > 0.05:
+			# Compute downhill direction in world space
+			var right_dir = transform.basis.x.normalized()
+			var h_left = _get_ground_height(global_position.x - right_dir.x * d, global_position.z - right_dir.z * d)
+			var h_right = _get_ground_height(global_position.x + right_dir.x * d, global_position.z + right_dir.z * d)
+			var lateral_slope = (h_right - h_left) / (d * 2.0)
+			# Slide sideways downhill — mud has no grip to resist
+			move_velocity += right_dir * lateral_slope * GRAVITY * 0.4 * delta
 
 	# --- Steering ---
 	var speed_ratio = clamp(abs(speed) / max(s.max_speed, 0.01), 0.0, 1.0)
@@ -433,30 +445,27 @@ func _get_ground_height(x: float, z: float) -> float:
 		if dist < hill[3]:
 			h += hill[2] * 0.5 * (1.0 + cos(PI * dist / hill[3]))
 
-	# Canyon on the bottom half (z < 0)
-	# The canyon follows the oval road path in the z < 0 region
-	# Road center at this z: x = ±OVAL_RX * sqrt(1 - (z/OVAL_RZ)^2)
-	if z < -20.0 and z > -(OVAL_RZ + 60.0):
-		# How deep into the canyon zone (0 at z=-20, 1 at z=-OVAL_RZ)
-		var canyon_blend = clamp((abs(z) - 20.0) / (OVAL_RZ - 20.0), 0.0, 1.0)
-		# Smooth entry/exit with sine
-		canyon_blend = sin(canyon_blend * PI)
-		var canyon_depth = 30.0 * canyon_blend
+	# Canyon runs along the ENTIRE oval road
+	# Depth varies: deeper on the far side, shallower near start
+	var nx = x / OVAL_RX
+	var nz = z / OVAL_RZ
+	var ed = sqrt(nx * nx + nz * nz)
+	var dist_from_road = abs(ed - 1.0) * (OVAL_RX + OVAL_RZ) / 2.0
 
-		# Distance from the oval road centerline
-		var nx = x / OVAL_RX
-		var nz = z / OVAL_RZ
-		var ed = sqrt(nx * nx + nz * nz)
-		var dist_from_road = abs(ed - 1.0) * (OVAL_RX + OVAL_RZ) / 2.0
+	# Canyon depth varies around the track using angle
+	var track_angle = atan2(z, x)
+	# Shallowest at start (angle=0, right side), deepest at far side (angle=PI)
+	var depth_factor = 0.3 + 0.7 * (1.0 - cos(track_angle)) / 2.0  # 0.3 to 1.0
+	var canyon_depth = 30.0 * depth_factor
 
-		# Canyon floor follows the road, walls rise on either side
-		var road_zone = ROAD_WIDTH * 0.8
+	# Only apply canyon near the road (not far away in the field)
+	var road_zone = ROAD_WIDTH * 0.8
+	var canyon_width = road_zone + 50.0  # how far canyon extends from road
+	if dist_from_road < canyon_width:
 		if dist_from_road < road_zone:
-			# On/near road: drop to canyon floor
 			h -= canyon_depth
 		else:
-			# Canyon walls: transition from floor back to surface
-			var wall_blend = clamp((dist_from_road - road_zone) / 40.0, 0.0, 1.0)
+			var wall_blend = clamp((dist_from_road - road_zone) / 50.0, 0.0, 1.0)
 			h -= canyon_depth * (1.0 - wall_blend)
 
 	return h

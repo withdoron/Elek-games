@@ -17,6 +17,9 @@ var countdown_phase: int = 0
 var countdown_label: Label
 var countdown_canvas: CanvasLayer
 var gas_pressed_during_countdown: Dictionary = {}
+var race_finished: bool = false
+var winner_id: int = -1
+const LAPS_TO_WIN = 3
 
 # 3x bigger track
 const ARENA_SIZE = 600.0
@@ -102,13 +105,22 @@ func _process(delta: float) -> void:
 				gas_pressed_during_countdown[kart.player_id] = countdown_timer
 		return
 
+	if race_finished:
+		return
+
 	for i in range(karts.size()):
 		if karts[i] and i < speedometers.size() and speedometers[i]:
 			speedometers[i].text = "%d km/h" % int(abs(karts[i].speed) * 3.6)
 		if karts[i] and i < lap_labels.size() and lap_labels[i]:
-			lap_labels[i].text = "Lap %d" % karts[i].lap_count
+			lap_labels[i].text = "Lap %d/%d" % [karts[i].lap_count, LAPS_TO_WIN]
 		if karts[i] and i < oil_labels.size() and oil_labels[i]:
 			oil_labels[i].text = "Oil: %d" % karts[i].oil_count
+
+		# Check win condition
+		if karts[i] and karts[i].lap_count >= LAPS_TO_WIN and not race_finished:
+			race_finished = true
+			winner_id = i
+			_show_winner(i)
 
 	_check_oil_collisions()
 	_check_truck_collisions()
@@ -209,6 +221,8 @@ func _update_countdown() -> void:
 
 func _start_game(num_players: int) -> void:
 	player_count = num_players
+	race_finished = false
+	winner_id = -1
 
 	for k in karts:
 		if k and k.get_parent():
@@ -488,24 +502,21 @@ func _get_color(x: float, z: float, grass: Color, road: Color, mud: Color) -> Co
 	var wd = dfc * (OVAL_RX + OVAL_RZ) / 2.0
 	var rhw = ROAD_WIDTH / 2.0
 
+	# Check if near the road (canyon zone)
+	var near_road = wd < rhw + 50.0  # canyon extends 50 past road edge
+	var track_angle = atan2(z, x)
+	var depth_factor = 0.3 + 0.7 * (1.0 - cos(track_angle)) / 2.0
+
 	if wd < rhw - 2.0:
-		# In canyon zone, road is darker
-		if z < -20.0 and z > -(OVAL_RZ + 60.0):
-			return road.darkened(0.15)
-		return road
+		# On road — darken in deep canyon sections
+		return road.darkened(depth_factor * 0.15)
 	elif wd < rhw + 2.0:
-		var base = grass
-		if z < -20.0 and z > -(OVAL_RZ + 60.0):
-			base = canyon_rock
+		var base = canyon_rock if near_road and depth_factor > 0.2 else grass
 		return road.lerp(base, (wd - (rhw - 2.0)) / 4.0)
 
-	# Canyon walls get rocky color
-	if z < -20.0 and z > -(OVAL_RZ + 60.0):
-		var canyon_blend = clamp((abs(z) - 20.0) / (OVAL_RZ - 20.0), 0.0, 1.0)
-		canyon_blend = sin(canyon_blend * PI)
-		if canyon_blend > 0.1:
-			# Blend between grass and rock based on canyon depth
-			return grass.lerp(canyon_rock, clamp(canyon_blend * 1.5, 0.0, 1.0))
+	# Canyon walls get rocky color based on depth
+	if near_road and depth_factor > 0.1:
+		return grass.lerp(canyon_rock, clamp(depth_factor * 1.5, 0.0, 1.0))
 
 	return grass
 
@@ -582,22 +593,23 @@ func get_ground_height(x: float, z: float) -> float:
 		if dist < hill[3]:
 			h += hill[2] * 0.5 * (1.0 + cos(PI * dist / hill[3]))
 
-	# Canyon on the bottom half (z < 0) — must match player_kart.gd
-	if z < -20.0 and z > -(OVAL_RZ + 60.0):
-		var canyon_blend = clamp((abs(z) - 20.0) / (OVAL_RZ - 20.0), 0.0, 1.0)
-		canyon_blend = sin(canyon_blend * PI)
-		var canyon_depth = 30.0 * canyon_blend
+	# Canyon along entire oval — must match player_kart.gd exactly
+	var nx = x / OVAL_RX
+	var nz = z / OVAL_RZ
+	var ed = sqrt(nx * nx + nz * nz)
+	var dist_from_road = abs(ed - 1.0) * (OVAL_RX + OVAL_RZ) / 2.0
 
-		var nx = x / OVAL_RX
-		var nz = z / OVAL_RZ
-		var ed = sqrt(nx * nx + nz * nz)
-		var dist_from_road = abs(ed - 1.0) * (OVAL_RX + OVAL_RZ) / 2.0
+	var track_angle = atan2(z, x)
+	var depth_factor = 0.3 + 0.7 * (1.0 - cos(track_angle)) / 2.0
+	var canyon_depth = 30.0 * depth_factor
 
-		var road_zone = ROAD_WIDTH * 0.8
+	var road_zone = ROAD_WIDTH * 0.8
+	var canyon_width = road_zone + 50.0
+	if dist_from_road < canyon_width:
 		if dist_from_road < road_zone:
 			h -= canyon_depth
 		else:
-			var wall_blend = clamp((dist_from_road - road_zone) / 40.0, 0.0, 1.0)
+			var wall_blend = clamp((dist_from_road - road_zone) / 50.0, 0.0, 1.0)
 			h -= canyon_depth * (1.0 - wall_blend)
 
 	return h
@@ -605,6 +617,50 @@ func get_ground_height(x: float, z: float) -> float:
 
 func _on_lap_completed(_pid: int, _lap: int) -> void:
 	pass
+
+
+func _show_winner(pid: int) -> void:
+	var win_canvas = CanvasLayer.new()
+	win_canvas.name = "WinScreen"
+	win_canvas.layer = 9
+	add_child(win_canvas)
+	hud_nodes.append(win_canvas)
+
+	var bg = ColorRect.new()
+	bg.color = Color(0, 0, 0, 0.6)
+	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	win_canvas.add_child(bg)
+
+	var player_name = "PLAYER %d" % (pid + 1)
+	var color_name = "BLUE" if pid == 0 else "RED"
+
+	var label = Label.new()
+	label.text = "%s WINS!" % player_name if player_count > 1 else "RACE COMPLETE!"
+	label.add_theme_font_size_override("font_size", 64)
+	label.add_theme_color_override("font_color", Color(1.0, 0.85, 0.3))
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	label.set_anchors_preset(Control.PRESET_CENTER)
+	label.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	label.grow_vertical = Control.GROW_DIRECTION_BOTH
+	label.custom_minimum_size = Vector2(600, 80)
+	win_canvas.add_child(label)
+
+	var sub = Label.new()
+	sub.text = "Press ESC to return to menu"
+	sub.add_theme_font_size_override("font_size", 24)
+	sub.add_theme_color_override("font_color", Color.WHITE)
+	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	sub.set_anchors_preset(Control.PRESET_CENTER)
+	sub.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	sub.grow_vertical = Control.GROW_DIRECTION_BOTH
+	sub.custom_minimum_size = Vector2(400, 40)
+	sub.position.y = 60
+	win_canvas.add_child(sub)
+
+	# Freeze all karts
+	for kart in karts:
+		kart.race_started = false
 
 
 func _make_label(pos: Vector2, size: int, color: Color, text: String) -> Label:
